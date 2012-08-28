@@ -7,7 +7,10 @@
                 "libraries": [
                     "-lzephyr"
                 ]
-            }
+            },
+            "cflags": [
+                "-W", "-Wall", "-Wno-unused-parameter"
+            ]
         }
     ]
 }
