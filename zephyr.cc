@@ -45,6 +45,12 @@ uv_loop_t *Loop;
     cleanup(req); \
 }
 
+// XXX Yeah, I know I should check return values... but lazy...
+char *getstr(const Handle<Value> str) {
+    String::Utf8Value temp(Handle<String>::Cast(str));
+    return strndup(*temp, temp.length());
+}
+
 /*[ CHECK ]*******************************************************************/
 
 void check_work(uv_work_t *req) {
@@ -172,12 +178,6 @@ Handle<Value> check(const Arguments& args) {
 }
 
 /*[ SUB ]*********************************************************************/
-
-// XXX Yeah, I know I should check return values... but lazy...
-char *getstr(const Handle<Value> str) {
-    String::Utf8Value temp(Handle<String>::Cast(str));
-    return strndup(*temp, temp.length());
-}
 
 struct subscribe_baton {
     uv_work_t req;
@@ -331,7 +331,81 @@ Handle<Value> subs(const Arguments& args) {
     return scope.Close(Undefined());
 }
 
-/*[ MAIN ]********************************************************************/
+/*[ SEND ]********************************************************************/
+
+struct send_baton {
+    uv_work_t req;
+    Persistent<Function> callback;
+    ZNotice_t *notice;
+    bool error;
+};
+
+void send_work(uv_work_t *req) {
+    send_baton *data = (send_baton *) req->data;
+    
+    data->error = ZSendNotice(data->notice, ZAUTH) != ZERR_NONE;
+    
+    free(data->notice->z_message);
+    free(data->notice->z_class);
+    free(data->notice->z_class_inst);
+    free(data->notice->z_default_format);
+    free(data->notice->z_opcode);
+    free(data->notice->z_recipient);
+    delete data->notice;
+}
+
+void send_cleanup(uv_work_t *req) {
+    send_baton *data = (send_baton *) req->data;
+    Local<Function> callback = Local<Function>::New(data->callback);
+    Local<Value> argv[1] = { Local<Value>::New(
+        data->error ? String::New("failed to send zephyr") : Undefined()) };
+    callback->Call(Context::GetCurrent()->Global(), 1, argv);
+    
+    data->callback.Dispose();
+    delete data;
+}
+
+char *mkstr(Handle<Object> source, const char *key, const char *def) {
+    return source->Has(String::New(key)) ?
+        getstr(source->Get(String::New(key))->ToString()) :
+        strdup(def);
+}
+
+// XXX this is terrible
+void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
+    char *signature = mkstr(source, "signature", "");
+    char *message   = mkstr(source, "message", "");
+    notice->z_message_len = strlen(signature) + strlen(message) + 2;
+    notice->z_message = (char *) malloc(notice->z_message_len);
+    strcpy(notice->z_message, signature);
+    strcpy(notice->z_message + strlen(signature) + 1, message);
+    free(signature);
+    free(message);
+    notice->z_kind           = ACKED;
+    notice->z_class          = mkstr(source, "class", "MESSAGE");
+    notice->z_class_inst     = mkstr(source, "instance", "PERSONAL");
+    notice->z_default_format = mkstr(source, "format", "");
+    notice->z_opcode         = mkstr(source, "opcode", "");
+    notice->z_recipient      = mkstr(source, "recipient", "");
+}
+
+Handle<Value> send(const Arguments& args) {
+    HandleScope scope;
+    
+    if(args.Length() != 2 || !args[0]->IsObject() || !args[1]->IsFunction())
+        THROW("subscribe({ ... }, callback(err))");
+    
+    send_baton *data = new send_baton;
+    data->req.data = (void *) data;
+    data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
+    data->error = false;
+    data->notice = new ZNotice_t();
+    object_to_zephyr(Local<Object>::Cast(args[0]), data->notice);
+    QUEUE(Loop, &data->req, send_work, send_cleanup);
+    return scope.Close(Undefined());
+}
+
+/*[ SEND ]********************************************************************/
 
 void init(Handle<Object> target) {
     Loop = uv_default_loop();
@@ -347,6 +421,7 @@ void init(Handle<Object> target) {
     METHOD(check);
     METHOD(subscribe);
     METHOD(subs);
+    METHOD(send);
 }
 
 NODE_MODULE(zephyr, init)
