@@ -11,10 +11,10 @@ extern "C" {
 
 using namespace v8;
 
-namespace Zephyr {
-    unsigned short port = 0;
-    Z_AuthProc authentic = ZAUTH;
-    Persistent<Function> on_msg;
+namespace {
+  unsigned short port = 0;
+  Z_AuthProc authentic = ZAUTH;
+  Persistent<Function> on_msg;
 }
 
 uv_loop_t *Loop;
@@ -40,7 +40,7 @@ uv_loop_t *Loop;
 // XXX haven't investigated much.) Which is kind of bad. Really we should have
 // XXX some sort of task queue in one background thread and use uv_queue_work
 // XXX or something...
-#define QUEUE(loop, req, work, cleanup) { \
+#define QUEUE(loop, req, work, cleanup) {	\
     work(req); \
     cleanup(req); \
 }
@@ -121,7 +121,7 @@ void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
 }
 
 void check_deliver(uv_async_t *async, int status) {
-    Local<Function> callback = Local<Function>::New(Zephyr::on_msg);
+    Local<Function> callback = Local<Function>::New(on_msg);
     struct sockaddr_in from;
     ZNotice_t *notice;
     
@@ -158,8 +158,8 @@ void check_cleanup(uv_work_t *req, int status) {
 #endif
     uv_async_t *async = (uv_async_t *) req->data;
     uv_close((uv_handle_t*) &async, NULL);
-    Zephyr::on_msg.Dispose();
-    Zephyr::on_msg.Clear();
+    on_msg.Dispose();
+    on_msg.Clear();
     delete async;
     delete req;
 }
@@ -169,13 +169,13 @@ Handle<Value> check(const Arguments& args) {
     
     if(args.Length() != 1 || !args[0]->IsFunction())
         THROW("check(callback(err, msg))");
-    if(!Zephyr::on_msg.IsEmpty())
+    if(!on_msg.IsEmpty())
         THROW("can't call check() while it's already running");
     
     uv_async_t *async = new uv_async_t;
     uv_work_t *req = new uv_work_t;
     req->data = (void *) async;
-    Zephyr::on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
+    on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
     uv_async_init(Loop, async, check_deliver);
     uv_queue_work(Loop, req, check_work, check_cleanup);
     return scope.Close(Undefined());
@@ -195,7 +195,7 @@ void subscribe_work(uv_work_t *req) {
     int length = data->out_subs->Length();
     
     if(length > 0)
-        ZSubscribeTo(data->subs, length, Zephyr::port);
+        ZSubscribeTo(data->subs, length, port);
     
     for(int i = 0; i < length; ++i) {
         free(data->subs[i].zsub_recipient);
@@ -280,7 +280,7 @@ struct subs_baton {
 void subs_work(uv_work_t *req) {
     subs_baton *data = (subs_baton *) req->data;
     
-    if(ZRetrieveSubscriptions(Zephyr::port, &data->nsubs) != ZERR_NONE)
+    if(ZRetrieveSubscriptions(port, &data->nsubs) != ZERR_NONE)
         return;
     
     data->subs = new ZSubscription_t[data->nsubs];
@@ -414,7 +414,7 @@ Handle<Value> send(const Arguments& args) {
 void init(Handle<Object> target) {
     Loop = uv_default_loop();
     
-    if(ZInitialize() != ZERR_NONE || ZOpenPort(&Zephyr::port) != ZERR_NONE) {
+    if(ZInitialize() != ZERR_NONE || ZOpenPort(&port) != ZERR_NONE) {
         // we should probably handle this better...
         perror("zephyr init");
         return;
