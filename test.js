@@ -1,4 +1,4 @@
-var zephyr = require('./build/Release/zephyr');
+var zephyr = require('./zephyr');
 console.dir(zephyr);
 
 var cls = process.argv[2];
