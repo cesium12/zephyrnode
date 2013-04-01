@@ -151,7 +151,11 @@ void check_deliver(uv_async_t *async, int status) {
     }
 }
 
+#if UV_VERSION_MAJOR == 0 && UV_VERSION_MINOR < 10
 void check_cleanup(uv_work_t *req) {
+#else
+void check_cleanup(uv_work_t *req, int status) {
+#endif
     uv_async_t *async = (uv_async_t *) req->data;
     uv_close((uv_handle_t*) &async, NULL);
     Zephyr::on_msg.Dispose();
