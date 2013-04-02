@@ -13,6 +13,7 @@ zephyr.subscribe([ [ cls, inst, '*' ] ], function() {
     process.stdin.on('data', function(message) {
         zephyr.send({
             class: cls,
+            instance: inst,
             signature: 'badass rockstar zephyr',
             message: message
         }, function() {});
