@@ -114,7 +114,7 @@ void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
 void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
   Local<Function> callback = Local<Function>::New(g_on_msg);
   struct sockaddr_in from;
-  ZNotice_t *notice;
+  ZNotice_t notice;
     
   while (true) {
     int len = ZPending();
@@ -125,14 +125,8 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
       return;
     }
 
-    notice = (ZNotice_t *) malloc(sizeof(ZNotice_t));
-    if (!notice) {
-      REPORT(callback, "Out of memory!");
-      return;
-    }
-    int ret = ZReceiveNotice(notice, &from);
+    int ret = ZReceiveNotice(&notice, &from);
     if (ret != ZERR_NONE) {
-      free(notice);
       // FIXME: put the error code in there too.
       REPORT(callback, error_message(ret));
       return;
@@ -143,9 +137,9 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
       Local<Value>::New(Undefined()),
       Local<Object>::New(object)
     };
-    zephyr_to_object(notice, object);
+    zephyr_to_object(&notice, object);
     callback->Call(Context::GetCurrent()->Global(), 2, argv);
-    ZFreeNotice(notice);
+    ZFreeNotice(&notice);
   }
 }
 
