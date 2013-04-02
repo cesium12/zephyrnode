@@ -1,0 +1,14 @@
+{
+  "name": "zephyr",
+  "version": "0.0.0",
+  "description": "Bindings for libzephyr",
+  "author": "David Benjamin <davidben@mit.edu> and Alan Huang <cesium@mit.edu>",
+  "dependencies": {
+  },
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "gypfile": true,
+  "readmeFilename": "README",
+  "main": "./zephyr.js"
+}
