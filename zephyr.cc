@@ -6,6 +6,7 @@
 #include <v8.h>
 
 extern "C" {
+#include <com_err.h>
 #include <zephyr/zephyr.h>
 }
 
@@ -123,10 +124,17 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
     } else if (len == 0) {
       return;
     }
-        
+
     notice = (ZNotice_t *) malloc(sizeof(ZNotice_t));
-    if (!notice || ZReceiveNotice(notice, &from) != ZERR_NONE) {
-      REPORT(callback, "error receiving zephyrgram");
+    if (!notice) {
+      REPORT(callback, "Out of memory!");
+      return;
+    }
+    int ret = ZReceiveNotice(notice, &from);
+    if (ret != ZERR_NONE) {
+      free(notice);
+      // FIXME: put the error code in there too.
+      REPORT(callback, error_message(ret));
       return;
     }
 
