@@ -19,6 +19,8 @@ Persistent<Function> g_on_msg;
 
 uv_loop_t *g_loop;
 
+uv_poll_t g_zephyr_poll;
+
 }  // namespace
 
 
@@ -55,21 +57,6 @@ char *getstr(const Handle<Value> str) {
 }
 
 /*[ CHECK ]*******************************************************************/
-
-void check_work(uv_work_t *req) {
-  uv_async_t *async = (uv_async_t *) req->data;
-  fd_set rfds;
-  int fd = ZGetFD();
-  while (true) {
-    FD_ZERO(&rfds);
-    FD_SET(fd, &rfds);
-    if (select(fd + 1, &rfds, NULL, NULL, NULL) < 0) {
-      perror("zephyr check");
-      break;
-    }
-    uv_async_send(async);
-  }
-}
 
 #define EXTRACT(type, name, field) PROPERTY(name, type::New(notice->field))
 
@@ -123,7 +110,7 @@ void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
   }
 }
 
-void check_deliver(uv_async_t *async, int status) {
+void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
   Local<Function> callback = Local<Function>::New(g_on_msg);
   struct sockaddr_in from;
   ZNotice_t *notice;
@@ -154,35 +141,36 @@ void check_deliver(uv_async_t *async, int status) {
   }
 }
 
-#if UV_VERSION_MAJOR == 0 && UV_VERSION_MINOR < 10
-void check_cleanup(uv_work_t *req)
-#else
-void check_cleanup(uv_work_t *req, int status)
-#endif
-{
-  uv_async_t *async = (uv_async_t *) req->data;
-  uv_close((uv_handle_t*) &async, NULL);
-  g_on_msg.Dispose();
-  g_on_msg.Clear();
-  delete async;
-  delete req;
-}
-
-Handle<Value> check(const Arguments& args) {
+Handle<Value> setMessageCallback(const Arguments& args) {
   HandleScope scope;
     
   if (args.Length() != 1 || !args[0]->IsFunction())
-    THROW("check(callback(err, msg))");
-  if (!g_on_msg.IsEmpty())
-    THROW("can't call check() while it's already running");
+    THROW("setMessageCallback(callback(err, msg))");
     
-  uv_async_t *async = new uv_async_t;
-  uv_work_t *req = new uv_work_t;
-  req->data = (void *) async;
   g_on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
-  uv_async_init(g_loop, async, check_deliver);
-  uv_queue_work(g_loop, req, check_work, check_cleanup);
+
   return scope.Close(Undefined());
+}
+
+void InstallZephyrListener() {
+  int fd = ZGetFD();
+  if (fd < 0) {
+    fprintf(stderr, "No zephyr FD\n");
+    return;
+  }
+
+  int ret;
+  ret = uv_poll_init(g_loop, &g_zephyr_poll, fd);
+  if (ret != 0) {
+    fprintf(stderr, "uv_poll_init: %d\n", ret);
+    return;
+  }
+
+  ret = uv_poll_start(&g_zephyr_poll, UV_READABLE, OnZephyrFDReady);
+  if (ret != 0) {
+    fprintf(stderr, "uv_poll_start: %d\n", ret);
+    return;
+  }
 }
 
 /*[ SUB ]*********************************************************************/
@@ -423,10 +411,12 @@ void init(Handle<Object> target) {
     perror("zephyr init");
     return;
   }
+
+  InstallZephyrListener();
     
   PROPERTY(sender, String::New(ZGetSender()));
   PROPERTY(realm, String::New(ZGetRealm()));
-  METHOD(check);
+  METHOD(setMessageCallback);
   METHOD(subscribe);
   METHOD(subs);
   METHOD(send);
