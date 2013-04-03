@@ -2,7 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <vector>
+
 #include <node.h>
+#include <node_buffer.h>
 #include <v8.h>
 
 extern "C" {
@@ -62,6 +66,12 @@ char *getstr(const Handle<Value> str) {
   return strndup(*temp, temp.length());
 }
 
+Local<Object> ZUniqueIdToBuffer(const ZUnique_Id_t& uid) {
+  return Local<Object>::New(
+      node::Buffer::New(reinterpret_cast<const char*>(&uid),
+                        sizeof(uid))->handle_);
+}
+
 /*[ CHECK ]*******************************************************************/
 
 #define EXTRACT(type, name, field) PROPERTY(name, type::New(notice->field))
@@ -83,6 +93,8 @@ void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
   EXTRACT(Number, kind,               z_kind);
   EXTRACT(Date,   time,               z_time.tv_sec * 1000.0);
   EXTRACT(Number, auth,               z_auth);
+
+  PROPERTY(uid, ZUniqueIdToBuffer(notice->z_uid));
     
   struct hostent *host = (struct hostent *) gethostbyaddr(
       (char *) &notice->z_sender_addr, sizeof(struct in_addr), AF_INET);
@@ -367,6 +379,23 @@ void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
   notice->z_recipient      = mkstr(source, "recipient", "");
 }
 
+namespace {
+std::vector<ZUnique_Id_t> g_wait_on_uids;
+}
+
+Code_t SendFunction(ZNotice_t* notice, char* packet, int len, int waitforack) {
+  // Send without blocking.
+  Code_t ret = ZSendPacket(packet, len, 0);
+
+  // Save the ZUnique_Id_t for waiting on. Arguably we do this better
+  // than the real libzephyr; ZSendPacket doesn't get a notice
+  // argument and parses the notice back out again.
+  if (ret == ZERR_NONE && waitforack)
+    g_wait_on_uids.push_back(notice->z_uid);
+
+  return ret;
+}
+
 Handle<Value> sendNotice(const Arguments& args) {
   HandleScope scope;
     
@@ -377,7 +406,7 @@ Handle<Value> sendNotice(const Arguments& args) {
   memset(&notice, 0, sizeof(notice));
   object_to_zephyr(Local<Object>::Cast(args[0]), &notice);
 
-  int ret = ZSendNotice(&notice, ZAUTH);
+  Code_t ret = ZSrvSendNotice(&notice, ZAUTH, SendFunction);
 
   // FIXME: This is silly.
   free(notice.z_message);
@@ -389,11 +418,16 @@ Handle<Value> sendNotice(const Arguments& args) {
 
   if (ret != ZERR_NONE) {
     ThrowException(ComErrException(ret));
+    g_wait_on_uids.clear();
     return scope.Close(Undefined());
   }
 
-  // TODO: We'll return other stuff later.
-  return scope.Close(Undefined());
+  Local<Array> uids = Array::New();
+  for (unsigned i = 0; i < g_wait_on_uids.size(); i++) {
+    uids->Set(i, ZUniqueIdToBuffer(g_wait_on_uids[i]));
+  }
+  g_wait_on_uids.clear();
+  return scope.Close(uids);
 }
 
 /*[ SEND ]********************************************************************/
