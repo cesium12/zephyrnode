@@ -221,7 +221,7 @@ void subscribe_cleanup(uv_work_t *req) {
   delete data;
 }
 
-Handle<Value> subscribe(const Arguments& args) {
+Handle<Value> subscribeTo(const Arguments& args) {
   HandleScope scope;
     
   if (args.Length() != 2 || !args[0]->IsArray() || !args[1]->IsFunction())
@@ -404,7 +404,7 @@ void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
   notice->z_recipient      = mkstr(source, "recipient", "");
 }
 
-Handle<Value> send(const Arguments& args) {
+Handle<Value> sendNotice(const Arguments& args) {
   HandleScope scope;
     
   if (args.Length() != 2 || !args[0]->IsObject() || !args[1]->IsFunction())
@@ -436,9 +436,9 @@ void init(Handle<Object> target) {
   PROPERTY(sender, String::New(ZGetSender()));
   PROPERTY(realm, String::New(ZGetRealm()));
   METHOD(setMessageCallback);
-  METHOD(subscribe);
+  METHOD(subscribeTo);
   METHOD(subs);
-  METHOD(send);
+  METHOD(sendNotice);
 }
 
 NODE_MODULE(zephyr, init)

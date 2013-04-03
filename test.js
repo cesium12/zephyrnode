@@ -4,7 +4,7 @@ console.dir(zephyr);
 var cls = process.argv[2];
 var inst = process.argv[3];
 
-zephyr.subscribe([ [ cls, inst, '*' ] ], function(err) {
+zephyr.subscribeTo([ [ cls, inst, '*' ] ], function(err) {
   if (err) {
     console.dir(err);
     return;
@@ -16,7 +16,7 @@ zephyr.subscribe([ [ cls, inst, '*' ] ], function(err) {
 		msg.opcode, msg.signature, msg.message);
   });
   process.stdin.on('data', function(message) {
-    zephyr.send({
+    zephyr.sendNotice({
       class: cls,
       instance: inst,
       signature: 'badass rockstar zephyr',

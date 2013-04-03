@@ -5,9 +5,9 @@ var internal = require('./build/Release/zephyr');
 var zephyr = new events.EventEmitter();
 zephyr.sender = internal.sender;
 zephyr.realm = internal.realm;
-zephyr.subscribe = internal.subscribe;
+zephyr.subscribeTo = internal.subscribeTo;
 zephyr.subs = internal.subs;
-zephyr.send = internal.send;
+zephyr.sendNotice = internal.sendNotice;
 
 internal.setMessageCallback(function(err, msg) {
   if (err) {
