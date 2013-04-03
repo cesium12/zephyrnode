@@ -3,6 +3,21 @@ var events = require('events');
 var internal = require('./build/Release/zephyr');
 
 var zephyr = new events.EventEmitter();
+
+zephyr.ZAUTH_FAILED = -1;
+zephyr.ZAUTH_YES = 1;
+zepyhr.ZAUTH_NO = 0;
+
+zephyr.UNSAFE = 0;
+zephyr.UNACKED = 1;
+zephyr.ACKED = 2;
+zephyr.HMACK = 3;
+zephyr.HMCTL = 4;
+zephyr.SERVACK = 5;
+zephyr.SERVNAK = 6;
+zephyr.CLIENTACK = 7;
+zephyr.STAT = 8;
+
 zephyr.sender = internal.sender;
 zephyr.realm = internal.realm;
 zephyr.subscribeTo = internal.subscribeTo;
