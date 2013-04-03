@@ -4,7 +4,12 @@ console.dir(zephyr);
 var cls = process.argv[2];
 var inst = process.argv[3];
 
-zephyr.subscribe([ [ cls, inst, '*' ] ], function() {
+zephyr.subscribe([ [ cls, inst, '*' ] ], function(err) {
+  if (err) {
+    console.dir(err);
+    return;
+  }
+
   zephyr.on("message", function(msg) {
     console.log("%s / %s / %s [%s] (%s)\n%s",
 		msg.class, msg.instance, msg.sender,
@@ -16,7 +21,12 @@ zephyr.subscribe([ [ cls, inst, '*' ] ], function() {
       instance: inst,
       signature: 'badass rockstar zephyr',
       message: message
-    }, function() {});
+    }, function(err) {
+      if (err) {
+	console.dir(err);
+	return;
+      }
+    });
   });
   process.stdin.setEncoding('utf8');
   process.stdin.resume();

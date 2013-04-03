@@ -33,13 +33,18 @@ uv_poll_t g_zephyr_poll;
         return scope.Close(Undefined()); \
     }
 
-#define REPORT(callback, error) { \
-        Local<Value> argv[2] = { \
-            Local<Value>::New(String::New(error)), \
-            Local<Value>::New(Undefined()) \
-        }; \
-        callback->Call(Context::GetCurrent()->Global(), 2, argv); \
-    }
+Local<Value> ComErrException(Code_t code) {
+  const char* msg = error_message(code);
+  Local<Value> err = Exception::Error(String::New(msg));
+  Local<Object> obj = err->ToObject();
+  obj->Set(String::NewSymbol("code"), Integer::New(code));
+  return err;
+}
+
+void CallWithError(Handle<Function> callback, Code_t code) {
+  Local<Value> err = ComErrException(code);
+  callback->Call(Context::GetCurrent()->Global(), 1, &err);
+}
 
 // XXX Unfortunately, it looks like everything except the select loop has to be
 // XXX synchronous because the zephyr library isn't thread-safe. (Disclaimer: I
@@ -119,7 +124,7 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
   while (true) {
     int len = ZPending();
     if (len < 0) {
-      REPORT(callback, strerror(errno));
+      CallWithError(callback, errno);
       return;
     } else if (len == 0) {
       return;
@@ -127,14 +132,13 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
 
     int ret = ZReceiveNotice(&notice, &from);
     if (ret != ZERR_NONE) {
-      // FIXME: put the error code in there too.
-      REPORT(callback, error_message(ret));
+      CallWithError(callback, ret);
       return;
     }
 
     Handle<Object> object = Object::New();
     Local<Value> argv[2] = {
-      Local<Value>::New(Undefined()),
+      Local<Value>::New(Null()),
       Local<Object>::New(object)
     };
     zephyr_to_object(&notice, object);
@@ -180,18 +184,20 @@ void InstallZephyrListener() {
 struct subscribe_baton {
   uv_work_t req;
   Persistent<Function> callback;
+  int length;
   ZSubscription_t *subs;
-  Persistent<Array> out_subs;
+  Code_t ret;
 };
 
 void subscribe_work(uv_work_t *req) {
   subscribe_baton *data = (subscribe_baton *) req->data;
-  int length = data->out_subs->Length();
+
+  if (data->length > 0)
+    data->ret = ZSubscribeTo(data->subs, data->length, g_port);
+  else
+    data->ret = ZERR_NONE;
     
-  if (length > 0)
-    ZSubscribeTo(data->subs, length, g_port);
-    
-  for (int i = 0; i < length; ++i) {
+  for (int i = 0; i < data->length; ++i) {
     free(data->subs[i].zsub_recipient);
     free(data->subs[i].zsub_classinst);
     free(data->subs[i].zsub_class);
@@ -200,13 +206,18 @@ void subscribe_work(uv_work_t *req) {
 }
 
 void subscribe_cleanup(uv_work_t *req) {
+  HandleScope scope;
+
   subscribe_baton *data = (subscribe_baton *) req->data;
-  Local<Function> callback = Local<Function>::New(data->callback);
-  Local<Value> argv[1] = { Local<Value>::New(data->out_subs) };
-  callback->Call(Context::GetCurrent()->Global(), 1, argv);
+  Local<Value> arg;
+  if (data->ret != ZERR_NONE) {
+    arg = ComErrException(data->ret);
+  } else {
+    arg = Local<Value>::New(Null());
+  }
+  data->callback->Call(Context::GetCurrent()->Global(), 1, &arg);
     
   data->callback.Dispose();
-  data->out_subs.Dispose();
   delete data;
 }
 
@@ -217,7 +228,6 @@ Handle<Value> subscribe(const Arguments& args) {
     THROW("subscribe([ [ class, instance, recipient? ], ... ], callback)");
     
   Local<Array> in_subs = Local<Array>::Cast(args[0]);
-  Local<Array> out_subs = Array::New(in_subs->Length());
   ZSubscription_t *subs = new ZSubscription_t[in_subs->Length()];
     
   for (uint32_t i = 0; i < in_subs->Length(); ++i) {
@@ -250,14 +260,13 @@ Handle<Value> subscribe(const Arguments& args) {
                              getstr(sub->Get(2)) : NULL;
     subs[i].zsub_classinst = getstr(sub->Get(1));
     subs[i].zsub_class = getstr(sub->Get(0));
-    out_subs->Set(i, sub);
   }
     
   subscribe_baton *data = new subscribe_baton;
   data->req.data = (void *) data;
   data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
+  data->length = in_subs->Length();
   data->subs = subs;
-  data->out_subs = Persistent<Array>::New(out_subs);
   QUEUE(g_loop, &data->req, subscribe_work, subscribe_cleanup);
   return scope.Close(Undefined());
 }
@@ -267,14 +276,16 @@ Handle<Value> subscribe(const Arguments& args) {
 struct subs_baton {
   uv_work_t req;
   Persistent<Function> callback;
+  Code_t ret;
   ZSubscription_t *subs;
   int nsubs;
 };
 
 void subs_work(uv_work_t *req) {
   subs_baton *data = (subs_baton *) req->data;
-    
-  if (ZRetrieveSubscriptions(g_port, &data->nsubs) != ZERR_NONE)
+
+  data->ret = ZRetrieveSubscriptions(g_port, &data->nsubs);
+  if (data->ret != ZERR_NONE)
     return;
     
   data->subs = new ZSubscription_t[data->nsubs];
@@ -289,11 +300,12 @@ void subs_work(uv_work_t *req) {
 }
 
 void subs_cleanup(uv_work_t *req) {
+  HandleScope scope;
+
   subs_baton *data = (subs_baton *) req->data;
     
-  Local<Function> callback = Local<Function>::New(data->callback);
-  if (data->subs == NULL) {
-    REPORT(callback, "couldn't get subs");
+  if (data->ret != ZERR_NONE) {
+    CallWithError(data->callback, data->ret);
   } else {
     Handle<Array> subs = Array::New(data->nsubs);
     for (int i = 0; i < data->nsubs; ++i) {
@@ -304,14 +316,14 @@ void subs_cleanup(uv_work_t *req) {
       subs->Set(i, sub);
     }
     Local<Value> argv[2] = {
-      Local<Value>::New(Undefined()),
+      Local<Value>::New(Null()),
       Local<Value>::New(subs)
     };
-    callback->Call(Context::GetCurrent()->Global(), 2, argv);
-    delete[] data->subs;
+    data->callback->Call(Context::GetCurrent()->Global(), 2, argv);
   }
     
   data->callback.Dispose();
+  delete[] data->subs;
   delete data;
 }
 
@@ -335,14 +347,14 @@ struct send_baton {
   uv_work_t req;
   Persistent<Function> callback;
   ZNotice_t *notice;
-  bool error;
+  Code_t ret;
 };
 
 void send_work(uv_work_t *req) {
   send_baton *data = (send_baton *) req->data;
     
-  data->error = ZSendNotice(data->notice, ZAUTH) != ZERR_NONE;
-    
+  data->ret = ZSendNotice(data->notice, ZAUTH);
+
   free(data->notice->z_message);
   free(data->notice->z_class);
   free(data->notice->z_class_inst);
@@ -353,11 +365,16 @@ void send_work(uv_work_t *req) {
 }
 
 void send_cleanup(uv_work_t *req) {
+  HandleScope scope;
+
   send_baton *data = (send_baton *) req->data;
-  Local<Function> callback = Local<Function>::New(data->callback);
-  Local<Value> argv[1] = { Local<Value>::New(
-      data->error ? String::New("failed to send zephyr") : Undefined()) };
-  callback->Call(Context::GetCurrent()->Global(), 1, argv);
+  Local<Value> arg;
+  if (data->ret != ZERR_NONE) {
+    arg = ComErrException(data->ret);
+  } else {
+    arg = Local<Value>::New(Null());
+  }
+  data->callback->Call(Context::GetCurrent()->Global(), 1, &arg);
     
   data->callback.Dispose();
   delete data;
@@ -396,7 +413,7 @@ Handle<Value> send(const Arguments& args) {
   send_baton *data = new send_baton;
   data->req.data = (void *) data;
   data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
-  data->error = false;
+  data->ret = ZERR_NONE;
   data->notice = new ZNotice_t();
   object_to_zephyr(Local<Object>::Cast(args[0]), data->notice);
   QUEUE(g_loop, &data->req, send_work, send_cleanup);
@@ -407,7 +424,7 @@ Handle<Value> send(const Arguments& args) {
 
 void init(Handle<Object> target) {
   g_loop = uv_default_loop();
-    
+
   if (ZInitialize() != ZERR_NONE || ZOpenPort(&g_port) != ZERR_NONE) {
     // we should probably handle this better...
     perror("zephyr init");
