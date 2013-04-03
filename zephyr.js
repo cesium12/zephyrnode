@@ -6,7 +6,7 @@ var zephyr = new events.EventEmitter();
 
 zephyr.ZAUTH_FAILED = -1;
 zephyr.ZAUTH_YES = 1;
-zepyhr.ZAUTH_NO = 0;
+zephyr.ZAUTH_NO = 0;
 
 zephyr.UNSAFE = 0;
 zephyr.UNACKED = 1;
