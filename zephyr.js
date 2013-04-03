@@ -7,7 +7,19 @@ zephyr.sender = internal.sender;
 zephyr.realm = internal.realm;
 zephyr.subscribeTo = internal.subscribeTo;
 zephyr.subs = internal.subs;
-zephyr.sendNotice = internal.sendNotice;
+zephyr.sendNotice = function(msg, cb) {
+  try {
+    internal.sendNotice(msg);
+  } catch (err) {
+    process.nextTick(function() {
+      cb(err);
+    });
+    return;
+  }
+  process.nextTick(function() {
+    cb(null);
+  });
+}
 
 internal.setMessageCallback(function(err, msg) {
   if (err) {

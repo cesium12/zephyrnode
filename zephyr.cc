@@ -343,43 +343,6 @@ Handle<Value> subs(const Arguments& args) {
 
 /*[ SEND ]********************************************************************/
 
-struct send_baton {
-  uv_work_t req;
-  Persistent<Function> callback;
-  ZNotice_t *notice;
-  Code_t ret;
-};
-
-void send_work(uv_work_t *req) {
-  send_baton *data = (send_baton *) req->data;
-    
-  data->ret = ZSendNotice(data->notice, ZAUTH);
-
-  free(data->notice->z_message);
-  free(data->notice->z_class);
-  free(data->notice->z_class_inst);
-  free(data->notice->z_default_format);
-  free(data->notice->z_opcode);
-  free(data->notice->z_recipient);
-  delete data->notice;
-}
-
-void send_cleanup(uv_work_t *req) {
-  HandleScope scope;
-
-  send_baton *data = (send_baton *) req->data;
-  Local<Value> arg;
-  if (data->ret != ZERR_NONE) {
-    arg = ComErrException(data->ret);
-  } else {
-    arg = Local<Value>::New(Null());
-  }
-  data->callback->Call(Context::GetCurrent()->Global(), 1, &arg);
-    
-  data->callback.Dispose();
-  delete data;
-}
-
 char *mkstr(Handle<Object> source, const char *key, const char *def) {
   return source->Has(String::New(key)) ?
       getstr(source->Get(String::New(key))->ToString()) :
@@ -407,16 +370,29 @@ void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
 Handle<Value> sendNotice(const Arguments& args) {
   HandleScope scope;
     
-  if (args.Length() != 2 || !args[0]->IsObject() || !args[1]->IsFunction())
-    THROW("subscribe({ ... }, callback(err))");
-    
-  send_baton *data = new send_baton;
-  data->req.data = (void *) data;
-  data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
-  data->ret = ZERR_NONE;
-  data->notice = new ZNotice_t();
-  object_to_zephyr(Local<Object>::Cast(args[0]), data->notice);
-  QUEUE(g_loop, &data->req, send_work, send_cleanup);
+  if (args.Length() != 1 || !args[0]->IsObject())
+    THROW("sendNotice({ ... })");
+
+  ZNotice_t notice;
+  memset(&notice, 0, sizeof(notice));
+  object_to_zephyr(Local<Object>::Cast(args[0]), &notice);
+
+  int ret = ZSendNotice(&notice, ZAUTH);
+
+  // FIXME: This is silly.
+  free(notice.z_message);
+  free(notice.z_class);
+  free(notice.z_class_inst);
+  free(notice.z_default_format);
+  free(notice.z_opcode);
+  free(notice.z_recipient);
+
+  if (ret != ZERR_NONE) {
+    ThrowException(ComErrException(ret));
+    return scope.Close(Undefined());
+  }
+
+  // TODO: We'll return other stuff later.
   return scope.Close(Undefined());
 }
 
