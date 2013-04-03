@@ -23,9 +23,16 @@ zephyr.subscribeTo([ [ cls, inst, '*' ] ], function(err) {
       message: message
     }, function(err) {
       if (err) {
-	console.dir(err);
+	console.dir('got HMACK', err);
 	return;
       }
+      console.log('got HMACK');
+    }).on('servack', function(err, msg) {
+      if (err) {
+	console.dir('got SERVNAK', err);
+	return;
+      }
+      console.log('got SERVACK', msg);
     });
   });
   process.stdin.setEncoding('utf8');
