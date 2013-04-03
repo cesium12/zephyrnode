@@ -4,6 +4,7 @@
   "description": "Bindings for libzephyr",
   "author": "David Benjamin <davidben@mit.edu> and Alan Huang <cesium@mit.edu>",
   "dependencies": {
+    "q": "0.9.x"
   },
   "scripts": {
     "install": "node-gyp rebuild"
