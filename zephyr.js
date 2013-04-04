@@ -105,16 +105,13 @@ internal.setMessageCallback(function(err, msg) {
       delete hmackTable[key];
     } else if (msg.kind === zephyr.SERVACK) {
       key = msg.uid.toString('base64');
-      // FIXME: zephyr.cc should just return all the fields or the
-      // whole message with NULs in it. Reading it out of "signature"
-      // is silly. Same as below.
       if (servackTable[key])
-	servackTable[key].resolve(msg.signature);
+	servackTable[key].resolve(msg.body[0]);
       delete servackTable[key];
     } else if (msg.kind === zephyr.SERVNAK) {
       key = msg.uid.toString('base64');
       if (servackTable[key])
-	servackTable[key].reject(new Error(msg.signature));
+	servackTable[key].reject(new Error(msg.body[0]));
       delete servackTable[key];
     }
 

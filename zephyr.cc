@@ -103,22 +103,18 @@ void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
   } else {
     PROPERTY(from_host, String::New(inet_ntoa(notice->z_sender_addr)));
   }
-    
-  if (notice->z_message_len > 0) {
-    EXTRACT(String, signature, z_message);
-    int sig_len = strlen(notice->z_message) + 1;
-    if (sig_len >= notice->z_message_len) {
-      PROPERTY(message, String::New(""));
-    } else {
-      char *message = strndup(notice->z_message + sig_len,
-                              notice->z_message_len - sig_len);
-      PROPERTY(message, String::New(message));
-      free(message);
-    }
-  } else {
-    PROPERTY(signature, String::New(""));
-    PROPERTY(message, String::New(""));
+
+  // Split up the body's components by NULs.
+  Local<Array> body = Array::New();
+  for (int offset = 0, i = 0; offset < notice->z_message_len; i++) {
+    const char* nul = static_cast<const char*>(
+        memchr(notice->z_message + offset, 0, notice->z_message_len - offset));
+    int nul_offset = nul ? (nul - notice->z_message) : notice->z_message_len;
+    body->Set(i, String::New(notice->z_message + offset,
+                             nul_offset - offset));
+    offset = nul_offset + 1;
   }
+  PROPERTY(body, body);
     
   if (notice->z_num_other_fields) {
     Local<Array> list = Array::New(notice->z_num_other_fields);

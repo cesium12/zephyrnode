@@ -13,7 +13,7 @@ zephyr.subscribeTo([ [ cls, inst, '*' ] ], function(err) {
   zephyr.on("message", function(msg) {
     console.log("%s / %s / %s [%s] (%s)\n%s",
 		msg.class, msg.instance, msg.sender,
-		msg.opcode, msg.signature, msg.message);
+		msg.opcode, msg.body[0], msg.body[1]);
   });
   process.stdin.on('data', function(message) {
     zephyr.sendNotice({
