@@ -19,7 +19,6 @@ using namespace v8;
 namespace {
 
 unsigned short g_port = 0;
-Z_AuthProc g_authentic = ZAUTH;
 Persistent<Function> g_on_msg;
 
 uv_loop_t *g_loop;
