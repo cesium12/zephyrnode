@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <string>
 #include <vector>
 
 #include <node.h>
@@ -350,28 +351,14 @@ Handle<Value> subs(const Arguments& args) {
 
 /*[ SEND ]********************************************************************/
 
-char *mkstr(Handle<Object> source, const char *key, const char *def) {
-  return source->Has(String::New(key)) ?
-      getstr(source->Get(String::New(key))->ToString()) :
-      strdup(def);
-}
-
-// XXX this is terrible
-void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
-  char *signature = mkstr(source, "signature", "");
-  char *message   = mkstr(source, "message", "");
-  notice->z_message_len = strlen(signature) + strlen(message) + 2;
-  notice->z_message = (char *) malloc(notice->z_message_len);
-  strcpy(notice->z_message, signature);
-  strcpy(notice->z_message + strlen(signature) + 1, message);
-  free(signature);
-  free(message);
-  notice->z_kind           = ACKED;
-  notice->z_class          = mkstr(source, "class", "MESSAGE");
-  notice->z_class_inst     = mkstr(source, "instance", "PERSONAL");
-  notice->z_default_format = mkstr(source, "format", "");
-  notice->z_opcode         = mkstr(source, "opcode", "");
-  notice->z_recipient      = mkstr(source, "recipient", "");
+std::string GetStringProperty(Handle<Object> source,
+			      const char* key,
+			      const char *default_value) {
+  Local<Value> value = source->Get(String::New(key));
+  if (value->IsUndefined())
+    return default_value;
+  String::Utf8Value value_utf8(source->Get(String::New(key)));
+  return std::string(*value_utf8, value_utf8.length());
 }
 
 namespace {
@@ -397,19 +384,31 @@ Handle<Value> sendNotice(const Arguments& args) {
   if (args.Length() != 1 || !args[0]->IsObject())
     THROW("sendNotice({ ... })");
 
+  // Pull fields out of the object.
+  Local<Object> obj = Local<Object>::Cast(args[0]);
+  std::string body = GetStringProperty(obj, "signature", "");
+  body += '\0';
+  body += GetStringProperty(obj, "message", "");
+  std::string msg_class = GetStringProperty(obj, "class", "MESSAGE");
+  std::string instance = GetStringProperty(obj, "instance", "PERSONAL");
+  std::string format = GetStringProperty(obj, "format",
+					 "http://zephyr.1ts.org/wiki/df");
+  std::string opcode = GetStringProperty(obj, "opcode", "");
+  std::string recipient = GetStringProperty(obj, "recipient", "");
+
+  // Assemble the notice.
   ZNotice_t notice;
   memset(&notice, 0, sizeof(notice));
-  object_to_zephyr(Local<Object>::Cast(args[0]), &notice);
+  notice.z_message_len = body.length();
+  notice.z_message = const_cast<char*>(body.data());
+  notice.z_kind = ACKED;
+  notice.z_class = const_cast<char*>(msg_class.c_str());
+  notice.z_class_inst = const_cast<char*>(instance.c_str());
+  notice.z_default_format = const_cast<char*>(format.c_str());
+  notice.z_opcode = const_cast<char*>(opcode.c_str());
+  notice.z_recipient = const_cast<char*>(recipient.c_str());
 
   Code_t ret = ZSrvSendNotice(&notice, ZAUTH, SendFunction);
-
-  // FIXME: This is silly.
-  free(notice.z_message);
-  free(notice.z_class);
-  free(notice.z_class_inst);
-  free(notice.z_default_format);
-  free(notice.z_opcode);
-  free(notice.z_recipient);
 
   if (ret != ZERR_NONE) {
     ThrowException(ComErrException(ret));
