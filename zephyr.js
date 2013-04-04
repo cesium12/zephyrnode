@@ -58,13 +58,13 @@ zephyr.sendNotice = function(msg, onHmack) {
 
   // Set up a bunch of deferreds for ACKs.
   var keys = uids.map(function(uid) { return uid.toString('base64'); });
-  keys.forEach(function(key) {
-    hmackTable[key] = Q.defer();
-    servackTable[key] = Q.defer();
-  });
 
   // HMACK
+  // XXX: libzephyr gets confused with fragmentation code and HMACKs
+  // and doesn't expect ZSendPacket to not block. This requires a fix
+  // in libzephyr.
   Q.all(keys.map(function(key) {
+    hmackTable[key] = Q.defer();
     return hmackTable[key].promise;
   })).then(function() {
     ev.emit('hmack', null);
@@ -74,7 +74,12 @@ zephyr.sendNotice = function(msg, onHmack) {
   }).done();
 
   // SERVACK
+  // libzephyr also drops non-initial SERVACKs on the floor. This
+  // would be worth tweaking but, for now, only report on the initial
+  // one.
+/*
   Q.all(keys.map(function(key) {
+    servackTable[key] = Q.defer();
     return servackTable[key].promise;
   })).then(function(msgs) {
     // Collapse messages into a single one. Use the most sad result.
@@ -86,6 +91,10 @@ zephyr.sendNotice = function(msg, onHmack) {
       }
     });
     ev.emit('servack', null, collapsed);
+*/
+  servackTable[keys[0]] = Q.defer();
+  Q.all([servackTable[keys[0]].promise]).then(function(msg) {
+    ev.emit('servack', null, msg);
   }, function(err) {
     ev.emit('servack', err);
   }).done();
