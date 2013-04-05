@@ -142,7 +142,7 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
   }
 }
 
-Handle<Value> setNoticeCallback(const Arguments& args) {
+Handle<Value> SetNoticeCallback(const Arguments& args) {
   HandleScope scope;
 
   if (args.Length() != 1 || !args[0]->IsFunction()) {
@@ -179,7 +179,7 @@ void InstallZephyrListener() {
 
 /*[ SUB ]*********************************************************************/
 
-Handle<Value> subscribeTo(const Arguments& args) {
+Handle<Value> SubscribeTo(const Arguments& args) {
   HandleScope scope;
 
   if (args.Length() != 1 || !args[0]->IsArray()) {
@@ -268,7 +268,7 @@ Code_t SendFunction(ZNotice_t* notice, char* packet, int len, int waitforack) {
   return ret;
 }
 
-Handle<Value> sendNotice(const Arguments& args) {
+Handle<Value> SendNotice(const Arguments& args) {
   HandleScope scope;
 
   if (args.Length() != 1 || !args[0]->IsObject()) {
@@ -345,11 +345,11 @@ void Init(Handle<Object> exports, Handle<Value> module) {
   exports->Set(g_symbol_sender, String::New(ZGetSender()));
   exports->Set(g_symbol_realm, String::New(ZGetRealm()));
   exports->Set(g_symbol_setNoticeCallback,
-               FunctionTemplate::New(setNoticeCallback)->GetFunction());
+               FunctionTemplate::New(SetNoticeCallback)->GetFunction());
   exports->Set(g_symbol_subscribeTo,
-               FunctionTemplate::New(subscribeTo)->GetFunction());
+               FunctionTemplate::New(SubscribeTo)->GetFunction());
   exports->Set(g_symbol_sendNotice,
-               FunctionTemplate::New(sendNotice)->GetFunction());
+               FunctionTemplate::New(SendNotice)->GetFunction());
 }
 
 NODE_MODULE(zephyr, Init)
