@@ -19,7 +19,6 @@ using namespace v8;
 
 namespace {
 
-unsigned short g_port = 0;
 Persistent<Function> g_on_msg;
 
 uv_loop_t *g_loop;
@@ -201,7 +200,7 @@ void subscribe_work(uv_work_t *req) {
   subscribe_baton *data = (subscribe_baton *) req->data;
 
   if (data->length > 0)
-    data->ret = ZSubscribeTo(data->subs, data->length, g_port);
+    data->ret = ZSubscribeTo(data->subs, data->length, 0);
   else
     data->ret = ZERR_NONE;
     
@@ -292,7 +291,7 @@ struct subs_baton {
 void subs_work(uv_work_t *req) {
   subs_baton *data = (subs_baton *) req->data;
 
-  data->ret = ZRetrieveSubscriptions(g_port, &data->nsubs);
+  data->ret = ZRetrieveSubscriptions(0, &data->nsubs);
   if (data->ret != ZERR_NONE)
     return;
     
@@ -440,7 +439,7 @@ Handle<Value> sendNotice(const Arguments& args) {
 void init(Handle<Object> target) {
   g_loop = uv_default_loop();
 
-  if (ZInitialize() != ZERR_NONE || ZOpenPort(&g_port) != ZERR_NONE) {
+  if (ZInitialize() != ZERR_NONE || ZOpenPort(NULL) != ZERR_NONE) {
     // we should probably handle this better...
     perror("zephyr init");
     return;
