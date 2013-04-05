@@ -41,16 +41,6 @@ void CallWithError(Handle<Function> callback, Code_t code) {
   callback->Call(Context::GetCurrent()->Global(), 1, &err);
 }
 
-// XXX Unfortunately, it looks like everything except the select loop has to be
-// XXX synchronous because the zephyr library isn't thread-safe. (Disclaimer: I
-// XXX haven't investigated much.) Which is kind of bad. Really we should have
-// XXX some sort of task queue in one background thread and use uv_queue_work
-// XXX or something...
-#define QUEUE(loop, req, work, cleanup) {	\
-    work(req); \
-    cleanup(req); \
-}
-
 // XXX Yeah, I know I should check return values... but lazy...
 char *getstr(const Handle<Value> str) {
   String::Utf8Value temp(Handle<String>::Cast(str));
@@ -183,50 +173,10 @@ void InstallZephyrListener() {
 
 /*[ SUB ]*********************************************************************/
 
-struct subscribe_baton {
-  uv_work_t req;
-  Persistent<Function> callback;
-  int length;
-  ZSubscription_t *subs;
-  Code_t ret;
-};
-
-void subscribe_work(uv_work_t *req) {
-  subscribe_baton *data = (subscribe_baton *) req->data;
-
-  if (data->length > 0)
-    data->ret = ZSubscribeTo(data->subs, data->length, 0);
-  else
-    data->ret = ZERR_NONE;
-    
-  for (int i = 0; i < data->length; ++i) {
-    free(data->subs[i].zsub_recipient);
-    free(data->subs[i].zsub_classinst);
-    free(data->subs[i].zsub_class);
-  }
-  delete[] data->subs;
-}
-
-void subscribe_cleanup(uv_work_t *req) {
-  HandleScope scope;
-
-  subscribe_baton *data = (subscribe_baton *) req->data;
-  Local<Value> arg;
-  if (data->ret != ZERR_NONE) {
-    arg = ComErrException(data->ret);
-  } else {
-    arg = Local<Value>::New(Null());
-  }
-  data->callback->Call(Context::GetCurrent()->Global(), 1, &arg);
-    
-  data->callback.Dispose();
-  delete data;
-}
-
 Handle<Value> subscribeTo(const Arguments& args) {
   HandleScope scope;
     
-  if (args.Length() != 2 || !args[0]->IsArray() || !args[1]->IsFunction()) {
+  if (args.Length() != 1 || !args[0]->IsArray()) {
     ThrowException(Exception::TypeError(String::New("Invalid parameters")));
     return scope.Close(Undefined());
   }
@@ -267,13 +217,21 @@ Handle<Value> subscribeTo(const Arguments& args) {
     subs[i].zsub_classinst = getstr(sub->Get(1));
     subs[i].zsub_class = getstr(sub->Get(0));
   }
+
+
+  int ret = ZSubscribeTo(subs, in_subs->Length(), 0);
     
-  subscribe_baton *data = new subscribe_baton;
-  data->req.data = (void *) data;
-  data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
-  data->length = in_subs->Length();
-  data->subs = subs;
-  QUEUE(g_loop, &data->req, subscribe_work, subscribe_cleanup);
+  for (unsigned i = 0; i < in_subs->Length(); ++i) {
+    free(subs[i].zsub_recipient);
+    free(subs[i].zsub_classinst);
+    free(subs[i].zsub_class);
+  }
+  delete[] subs;
+
+  if (ret != ZERR_NONE) {
+    ThrowException(ComErrException(ret));
+    return scope.Close(Undefined());
+  }
   return scope.Close(Undefined());
 }
 

@@ -32,7 +32,19 @@ ZSRVACK_PRIORITY[zephyr.ZSRVACK_FAIL] = 2;
 
 zephyr.sender = internal.sender;
 zephyr.realm = internal.realm;
-zephyr.subscribeTo = internal.subscribeTo;
+
+zephyr.subscribeTo = function(subs, cb) {
+  // TODO: Make this function actually asynchronous.
+  var err = null;
+  try {
+    internal.subscribeTo(subs);
+  } catch (e) {
+    err = e;
+  }
+  process.nextTick(function() {
+    cb(err);
+  });
+}
 
 var hmackTable = { };
 var servackTable = { };
