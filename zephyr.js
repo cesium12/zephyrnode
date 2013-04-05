@@ -33,7 +33,6 @@ ZSRVACK_PRIORITY[zephyr.ZSRVACK_FAIL] = 2;
 zephyr.sender = internal.sender;
 zephyr.realm = internal.realm;
 zephyr.subscribeTo = internal.subscribeTo;
-zephyr.subs = internal.subs;
 
 var hmackTable = { };
 var servackTable = { };

@@ -278,76 +278,6 @@ Handle<Value> subscribeTo(const Arguments& args) {
   return scope.Close(Undefined());
 }
 
-/*[ SUBS ]********************************************************************/
-
-struct subs_baton {
-  uv_work_t req;
-  Persistent<Function> callback;
-  Code_t ret;
-  ZSubscription_t *subs;
-  int nsubs;
-};
-
-void subs_work(uv_work_t *req) {
-  subs_baton *data = (subs_baton *) req->data;
-
-  data->ret = ZRetrieveSubscriptions(0, &data->nsubs);
-  if (data->ret != ZERR_NONE)
-    return;
-    
-  data->subs = new ZSubscription_t[data->nsubs];
-  for (int i = 0; i < data->nsubs; ++i) {
-    int temp = 1;
-    if (ZGetSubscriptions(&(data->subs[i]), &temp) != ZERR_NONE) {
-      delete[] data->subs;
-      data->subs = NULL;
-      return;
-    }
-  }
-}
-
-void subs_cleanup(uv_work_t *req) {
-  HandleScope scope;
-
-  subs_baton *data = (subs_baton *) req->data;
-    
-  if (data->ret != ZERR_NONE) {
-    CallWithError(data->callback, data->ret);
-  } else {
-    Handle<Array> subs = Array::New(data->nsubs);
-    for (int i = 0; i < data->nsubs; ++i) {
-      Handle<Array> sub = Array::New(3);
-      sub->Set(0, String::New(data->subs[i].zsub_class));
-      sub->Set(1, String::New(data->subs[i].zsub_classinst));
-      sub->Set(2, String::New(data->subs[i].zsub_recipient));
-      subs->Set(i, sub);
-    }
-    Local<Value> argv[2] = {
-      Local<Value>::New(Null()),
-      Local<Value>::New(subs)
-    };
-    data->callback->Call(Context::GetCurrent()->Global(), 2, argv);
-  }
-    
-  data->callback.Dispose();
-  delete[] data->subs;
-  delete data;
-}
-
-Handle<Value> subs(const Arguments& args) {
-  HandleScope scope;
-    
-  if (args.Length() != 1 || !args[0]->IsFunction())
-    THROW("subs(callback(err, [ sub, ... ]))");
-    
-  subs_baton *data = new subs_baton;
-  data->req.data = (void *) data;
-  data->callback = Persistent<Function>::New(Local<Function>::Cast(args[0]));
-  data->subs = NULL;
-  QUEUE(g_loop, &data->req, subs_work, subs_cleanup);
-  return scope.Close(Undefined());
-}
-
 /*[ SEND ]********************************************************************/
 
 std::string GetStringProperty(Handle<Object> source,
@@ -451,7 +381,6 @@ void init(Handle<Object> target) {
   PROPERTY(realm, String::New(ZGetRealm()));
   METHOD(setNoticeCallback);
   METHOD(subscribeTo);
-  METHOD(subs);
   METHOD(sendNotice);
 }
 
