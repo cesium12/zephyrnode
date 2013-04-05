@@ -342,11 +342,14 @@ void Init(Handle<Object> target) {
 
   InstallZephyrListener();
 
-  PROPERTY(sender, String::New(ZGetSender()));
-  PROPERTY(realm, String::New(ZGetRealm()));
-  METHOD(setNoticeCallback);
-  METHOD(subscribeTo);
-  METHOD(sendNotice);
+  target->Set(g_symbol_sender, String::New(ZGetSender()));
+  target->Set(g_symbol_realm, String::New(ZGetRealm()));
+  target->Set(g_symbol_setNoticeCallback,
+              FunctionTemplate::New(setNoticeCallback)->GetFunction());
+  target->Set(g_symbol_subscribeTo,
+              FunctionTemplate::New(subscribeTo)->GetFunction());
+  target->Set(g_symbol_sendNotice,
+              FunctionTemplate::New(sendNotice)->GetFunction());
 }
 
 NODE_MODULE(zephyr, Init)
