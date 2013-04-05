@@ -329,7 +329,7 @@ Handle<Value> sendNotice(const Arguments& args) {
 
 /*[ SEND ]********************************************************************/
 
-void Init(Handle<Object> target) {
+void Init(Handle<Object> exports, Handle<Value> module) {
   CreateSymbols();
 
   g_loop = uv_default_loop();
@@ -342,14 +342,14 @@ void Init(Handle<Object> target) {
 
   InstallZephyrListener();
 
-  target->Set(g_symbol_sender, String::New(ZGetSender()));
-  target->Set(g_symbol_realm, String::New(ZGetRealm()));
-  target->Set(g_symbol_setNoticeCallback,
-              FunctionTemplate::New(setNoticeCallback)->GetFunction());
-  target->Set(g_symbol_subscribeTo,
-              FunctionTemplate::New(subscribeTo)->GetFunction());
-  target->Set(g_symbol_sendNotice,
-              FunctionTemplate::New(sendNotice)->GetFunction());
+  exports->Set(g_symbol_sender, String::New(ZGetSender()));
+  exports->Set(g_symbol_realm, String::New(ZGetRealm()));
+  exports->Set(g_symbol_setNoticeCallback,
+               FunctionTemplate::New(setNoticeCallback)->GetFunction());
+  exports->Set(g_symbol_subscribeTo,
+               FunctionTemplate::New(subscribeTo)->GetFunction());
+  exports->Set(g_symbol_sendNotice,
+               FunctionTemplate::New(sendNotice)->GetFunction());
 }
 
 NODE_MODULE(zephyr, Init)
