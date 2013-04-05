@@ -44,7 +44,7 @@ Local<Value> ComErrException(Code_t code) {
   const char* msg = error_message(code);
   Local<Value> err = Exception::Error(String::New(msg));
   Local<Object> obj = err->ToObject();
-  obj->Set(String::NewSymbol("code"), Integer::New(code));
+  obj->Set(g_symbol_code, Integer::New(code));
   return err;
 }
 
