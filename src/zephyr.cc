@@ -90,7 +90,7 @@ void ZephyrToObject(ZNotice_t *notice, Handle<Object> target) {
     offset = nul_offset + 1;
   }
   PROPERTY(body, body);
-    
+
   if (notice->z_num_other_fields) {
     Local<Array> list = Array::New(notice->z_num_other_fields);
     for (int i = 0; i < notice->z_num_other_fields; ++i)
@@ -103,7 +103,7 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
   Local<Function> callback = Local<Function>::New(g_on_msg);
   struct sockaddr_in from;
   ZNotice_t notice;
-    
+
   while (true) {
     int len = ZPending();
     if (len < 0) {
@@ -132,13 +132,13 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
 
 Handle<Value> setNoticeCallback(const Arguments& args) {
   HandleScope scope;
-    
+
   if (args.Length() != 1 || !args[0]->IsFunction()) {
     ThrowException(Exception::TypeError(
         String::New("Parameter not a function")));
     return scope.Close(Undefined());
   }
-    
+
   g_on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
 
   return scope.Close(Undefined());
@@ -169,15 +169,15 @@ void InstallZephyrListener() {
 
 Handle<Value> subscribeTo(const Arguments& args) {
   HandleScope scope;
-    
+
   if (args.Length() != 1 || !args[0]->IsArray()) {
     ThrowException(Exception::TypeError(String::New("Invalid parameters")));
     return scope.Close(Undefined());
   }
-    
+
   Local<Array> in_subs = Local<Array>::Cast(args[0]);
   ZSubscription_t *subs = new ZSubscription_t[in_subs->Length()];
-    
+
   for (uint32_t i = 0; i < in_subs->Length(); ++i) {
     bool success = true;
     Local<Array> sub;
@@ -214,7 +214,7 @@ Handle<Value> subscribeTo(const Arguments& args) {
 
 
   int ret = ZSubscribeTo(subs, in_subs->Length(), 0);
-    
+
   for (unsigned i = 0; i < in_subs->Length(); ++i) {
     free(subs[i].zsub_recipient);
     free(subs[i].zsub_classinst);
@@ -258,7 +258,7 @@ Code_t SendFunction(ZNotice_t* notice, char* packet, int len, int waitforack) {
 
 Handle<Value> sendNotice(const Arguments& args) {
   HandleScope scope;
-    
+
   if (args.Length() != 1 || !args[0]->IsObject()) {
     ThrowException(Exception::TypeError(String::New("Notice must be object")));
     return scope.Close(Undefined());
@@ -327,7 +327,7 @@ void Init(Handle<Object> target) {
   }
 
   InstallZephyrListener();
-    
+
   PROPERTY(sender, String::New(ZGetSender()));
   PROPERTY(realm, String::New(ZGetRealm()));
   METHOD(setNoticeCallback);
