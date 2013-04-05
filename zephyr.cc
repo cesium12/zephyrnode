@@ -386,9 +386,20 @@ Handle<Value> sendNotice(const Arguments& args) {
 
   // Pull fields out of the object.
   Local<Object> obj = Local<Object>::Cast(args[0]);
-  std::string body = GetStringProperty(obj, "signature", "");
-  body += '\0';
-  body += GetStringProperty(obj, "message", "");
+
+  // Assemble the body.
+  std::string body;
+  Local<Value> body_value = obj->Get(String::New("body"));
+  if (body_value->IsArray()) {
+    Local<Array> body_array = Local<Array>::Cast(body_value);
+    for (uint32_t i = 0, len = body_array->Length(); i < len; i++) {
+      String::Utf8Value value(body_array->Get(i));
+      if (i > 0)
+	body.push_back('\0');
+      body.append(*value, value.length());
+    }
+  }
+
   std::string msg_class = GetStringProperty(obj, "class", "MESSAGE");
   std::string instance = GetStringProperty(obj, "instance", "PERSONAL");
   std::string format = GetStringProperty(obj, "format",

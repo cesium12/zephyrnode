@@ -19,8 +19,10 @@ zephyr.subscribeTo([ [ cls, inst, '*' ] ], function(err) {
     zephyr.sendNotice({
       class: cls,
       instance: inst,
-      signature: 'badass rockstar zephyr',
-      message: message
+      body: [
+	'badass rockstar zephyr',
+	message
+      ]
     }, function(err) {
       if (err) {
 	console.dir('got HMACK', err);
