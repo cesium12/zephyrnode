@@ -2,7 +2,7 @@
     "targets": [
         {
             "target_name": "zephyr",
-            "sources": [ "zephyr.cc" ],
+            "sources": [ "src/zephyr.cc" ],
             "link_settings": {
                 "libraries": [
                     "-lzephyr"
