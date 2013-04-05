@@ -25,7 +25,7 @@ zephyr.subscribeTo([ [ cls, inst, '*' ] ], function(err) {
       ]
     }, function(err) {
       if (err) {
-	console.dir('got HMACK', err);
+	console.dir(err);
 	return;
       }
       console.log('got HMACK');
