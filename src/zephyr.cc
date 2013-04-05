@@ -67,7 +67,7 @@ Local<Object> ZUniqueIdToBuffer(const ZUnique_Id_t& uid) {
 
 #define EXTRACT(type, name, field) PROPERTY(name, type::New(notice->field))
 
-void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
+void ZephyrToObject(ZNotice_t *notice, Handle<Object> target) {
   EXTRACT(String, packet,             z_packet);
   EXTRACT(String, version,            z_version);
   EXTRACT(Number, port,               z_port);
@@ -140,7 +140,7 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
       Local<Value>::New(Null()),
       Local<Object>::New(object)
     };
-    zephyr_to_object(&notice, object);
+    ZephyrToObject(&notice, object);
     callback->Call(Context::GetCurrent()->Global(), 2, argv);
     ZFreeNotice(&notice);
   }
@@ -365,7 +365,7 @@ Handle<Value> sendNotice(const Arguments& args) {
 
 /*[ SEND ]********************************************************************/
 
-void init(Handle<Object> target) {
+void Init(Handle<Object> target) {
   g_loop = uv_default_loop();
 
   if (ZInitialize() != ZERR_NONE || ZOpenPort(NULL) != ZERR_NONE) {
@@ -383,6 +383,6 @@ void init(Handle<Object> target) {
   METHOD(sendNotice);
 }
 
-NODE_MODULE(zephyr, init)
+NODE_MODULE(zephyr, Init)
 
 }  // namespace
