@@ -25,6 +25,18 @@ uv_loop_t *g_loop;
 
 uv_poll_t g_zephyr_poll;
 
+#define NODE_ZEPHYR_SYMBOL(sym) \
+  Persistent<String> g_symbol_ ## sym ;
+#include "symbols.h"
+#undef NODE_ZEPHYR_SYMBOL
+
+void CreateSymbols() {
+#define NODE_ZEPHYR_SYMBOL(sym) \
+  g_symbol_ ## sym = Persistent<String>::New(String::NewSymbol( #sym ));
+#include "symbols.h"
+#undef NODE_ZEPHYR_SYMBOL
+}
+
 #define PROPERTY(name, value) target->Set(String::NewSymbol(#name), value)
 #define METHOD(name) PROPERTY(name, FunctionTemplate::New(name)->GetFunction())
 
@@ -318,6 +330,8 @@ Handle<Value> sendNotice(const Arguments& args) {
 /*[ SEND ]********************************************************************/
 
 void Init(Handle<Object> target) {
+  CreateSymbols();
+
   g_loop = uv_default_loop();
 
   if (ZInitialize() != ZERR_NONE || ZOpenPort(NULL) != ZERR_NONE) {
