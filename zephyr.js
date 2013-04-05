@@ -124,7 +124,6 @@ internal.setNoticeCallback(function(err, notice) {
       delete servackTable[key];
     }
 
-    console.dir(notice);
     zephyr.emit("notice", notice);
   }
 });
