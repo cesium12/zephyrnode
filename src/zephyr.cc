@@ -28,11 +28,6 @@ uv_poll_t g_zephyr_poll;
 #define PROPERTY(name, value) target->Set(String::NewSymbol(#name), value)
 #define METHOD(name) PROPERTY(name, FunctionTemplate::New(name)->GetFunction())
 
-#define THROW(msg) { \
-        ThrowException(Exception::Error(String::New(msg))); \
-        return scope.Close(Undefined()); \
-    }
-
 Local<Value> ComErrException(Code_t code) {
   const char* msg = error_message(code);
   Local<Value> err = Exception::Error(String::New(msg));
@@ -154,8 +149,11 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
 Handle<Value> setNoticeCallback(const Arguments& args) {
   HandleScope scope;
     
-  if (args.Length() != 1 || !args[0]->IsFunction())
-    THROW("setNoticeCallback(callback(err, msg))");
+  if (args.Length() != 1 || !args[0]->IsFunction()) {
+    ThrowException(Exception::TypeError(
+        String::New("Parameter not a function")));
+    return scope.Close(Undefined());
+  }
     
   g_on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
 
@@ -228,8 +226,10 @@ void subscribe_cleanup(uv_work_t *req) {
 Handle<Value> subscribeTo(const Arguments& args) {
   HandleScope scope;
     
-  if (args.Length() != 2 || !args[0]->IsArray() || !args[1]->IsFunction())
-    THROW("subscribe([ [ class, instance, recipient? ], ... ], callback)");
+  if (args.Length() != 2 || !args[0]->IsArray() || !args[1]->IsFunction()) {
+    ThrowException(Exception::TypeError(String::New("Invalid parameters")));
+    return scope.Close(Undefined());
+  }
     
   Local<Array> in_subs = Local<Array>::Cast(args[0]);
   ZSubscription_t *subs = new ZSubscription_t[in_subs->Length()];
@@ -257,7 +257,9 @@ Handle<Value> subscribeTo(const Arguments& args) {
     }
     if (!success) {
       delete[] subs;
-      THROW("subs must be [ class, instance, recipient? ]");
+      ThrowException(Exception::TypeError(
+          String::New("Subs must be [ class, instance, recipient? ]")));
+      return scope.Close(Undefined());
     }
 
     subs[i].zsub_recipient = sub->Length() == 3 ?
@@ -305,8 +307,10 @@ Code_t SendFunction(ZNotice_t* notice, char* packet, int len, int waitforack) {
 Handle<Value> sendNotice(const Arguments& args) {
   HandleScope scope;
     
-  if (args.Length() != 1 || !args[0]->IsObject())
-    THROW("sendNotice({ ... })");
+  if (args.Length() != 1 || !args[0]->IsObject()) {
+    ThrowException(Exception::TypeError(String::New("Notice must be object")));
+    return scope.Close(Undefined());
+  }
 
   // Pull fields out of the object.
   Local<Object> obj = Local<Object>::Cast(args[0]);
