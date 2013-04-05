@@ -10,7 +10,7 @@ zephyr.subscribeTo([ [ cls, inst, '*' ] ], function(err) {
     return;
   }
 
-  zephyr.on("message", function(msg) {
+  zephyr.on("notice", function(msg) {
     console.log("%s / %s / %s [%s] (%s)\n%s",
 		msg.class, msg.instance, msg.sender,
 		msg.opcode, msg.body[0], msg.body[1]);

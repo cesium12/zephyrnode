@@ -102,30 +102,30 @@ zephyr.sendNotice = function(msg, onHmack) {
   return ev;
 };
 
-internal.setMessageCallback(function(err, msg) {
+internal.setNoticeCallback(function(err, notice) {
   if (err) {
     zephyr.emit("error", err);
   } else {
     var key;
-    if (msg.kind === zephyr.HMACK) {
-      key = msg.uid.toString('base64');
+    if (notice.kind === zephyr.HMACK) {
+      key = notice.uid.toString('base64');
       if (hmackTable[key])
 	hmackTable[key].resolve(null);
       delete hmackTable[key];
-    } else if (msg.kind === zephyr.SERVACK) {
-      key = msg.uid.toString('base64');
+    } else if (notice.kind === zephyr.SERVACK) {
+      key = notice.uid.toString('base64');
       if (servackTable[key])
-	servackTable[key].resolve(msg.body[0]);
+	servackTable[key].resolve(notice.body[0]);
       delete servackTable[key];
-    } else if (msg.kind === zephyr.SERVNAK) {
-      key = msg.uid.toString('base64');
+    } else if (notice.kind === zephyr.SERVNAK) {
+      key = notice.uid.toString('base64');
       if (servackTable[key])
-	servackTable[key].reject(new Error(msg.body[0]));
+	servackTable[key].reject(new Error(notice.body[0]));
       delete servackTable[key];
     }
 
-    console.dir(msg);
-    zephyr.emit("message", msg);
+    console.dir(notice);
+    zephyr.emit("notice", notice);
   }
 });
 

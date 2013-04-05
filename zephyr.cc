@@ -155,11 +155,11 @@ void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
   }
 }
 
-Handle<Value> setMessageCallback(const Arguments& args) {
+Handle<Value> setNoticeCallback(const Arguments& args) {
   HandleScope scope;
     
   if (args.Length() != 1 || !args[0]->IsFunction())
-    THROW("setMessageCallback(callback(err, msg))");
+    THROW("setNoticeCallback(callback(err, msg))");
     
   g_on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
 
@@ -450,7 +450,7 @@ void init(Handle<Object> target) {
     
   PROPERTY(sender, String::New(ZGetSender()));
   PROPERTY(realm, String::New(ZGetRealm()));
-  METHOD(setMessageCallback);
+  METHOD(setNoticeCallback);
   METHOD(subscribeTo);
   METHOD(subs);
   METHOD(sendNotice);
