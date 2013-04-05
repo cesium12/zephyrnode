@@ -37,9 +37,6 @@ void CreateSymbols() {
 #undef NODE_ZEPHYR_SYMBOL
 }
 
-#define PROPERTY(name, value) target->Set(String::NewSymbol(#name), value)
-#define METHOD(name) PROPERTY(name, FunctionTemplate::New(name)->GetFunction())
-
 Local<Value> ComErrException(Code_t code) {
   const char* msg = error_message(code);
   Local<Value> err = Exception::Error(String::New(msg));
@@ -67,29 +64,28 @@ Local<Object> ZUniqueIdToBuffer(const ZUnique_Id_t& uid) {
 
 /*[ CHECK ]*******************************************************************/
 
-#define EXTRACT(type, name, field) PROPERTY(name, type::New(notice->field))
-
 void ZephyrToObject(ZNotice_t *notice, Handle<Object> target) {
-  EXTRACT(String, packet,             z_packet);
-  EXTRACT(String, version,            z_version);
-  EXTRACT(Number, port,               z_port);
-  EXTRACT(Number, checked_auth,       z_checked_auth);
-  EXTRACT(Number, authent_len,        z_authent_len);
-  EXTRACT(String, ascii_authent,      z_ascii_authent);
-  EXTRACT(String, class,              z_class);
-  EXTRACT(String, instance,           z_class_inst);
-  EXTRACT(String, opcode,             z_opcode);
-  EXTRACT(String, sender,             z_sender);
-  EXTRACT(String, recipient,          z_recipient);
-  EXTRACT(String, format,             z_default_format);
-  EXTRACT(Number, num_other_fields,   z_num_other_fields);
-  EXTRACT(Number, kind,               z_kind);
-  EXTRACT(Date,   time,               z_time.tv_sec * 1000.0);
-  EXTRACT(Number, auth,               z_auth);
+  target->Set(g_symbol_version, String::New(notice->z_version));
+  target->Set(g_symbol_port, Number::New(notice->z_port));
+  target->Set(g_symbol_checkedAuth, Number::New(notice->z_checked_auth));
+  target->Set(g_symbol_authentLen, Number::New(notice->z_authent_len));
+  // FIXME: This likely does terrible things with unicode. I think
+  // it's not actually ASCII.
+  target->Set(g_symbol_asciiAuthent, String::New(notice->z_ascii_authent));
+  target->Set(g_symbol_class, String::New(notice->z_class));
+  target->Set(g_symbol_instance, String::New(notice->z_class_inst));
+  target->Set(g_symbol_opcode, String::New(notice->z_opcode));
+  target->Set(g_symbol_sender, String::New(notice->z_sender));
+  target->Set(g_symbol_recipient, String::New(notice->z_recipient));
+  target->Set(g_symbol_kind, Number::New(notice->z_kind));
+  target->Set(g_symbol_time, Date::New(notice->z_time.tv_sec * 1000.0 +
+                                       notice->z_time.tv_usec / 1000.0));
+  target->Set(g_symbol_auth, Number::New(notice->z_auth));
 
-  PROPERTY(uid, ZUniqueIdToBuffer(notice->z_uid));
+  target->Set(g_symbol_uid, ZUniqueIdToBuffer(notice->z_uid));
 
-  PROPERTY(sender_addr, String::New(inet_ntoa(notice->z_sender_addr)));
+  target->Set(g_symbol_senderAddr,
+              String::New(inet_ntoa(notice->z_sender_addr)));
 
   // Split up the body's components by NULs.
   Local<Array> body = Array::New();
@@ -101,14 +97,13 @@ void ZephyrToObject(ZNotice_t *notice, Handle<Object> target) {
                              nul_offset - offset));
     offset = nul_offset + 1;
   }
-  PROPERTY(body, body);
+  target->Set(g_symbol_body, body);
 
-  if (notice->z_num_other_fields) {
-    Local<Array> list = Array::New(notice->z_num_other_fields);
-    for (int i = 0; i < notice->z_num_other_fields; ++i)
-      list->Set(i, String::New(notice->z_other_fields[i]));
-    PROPERTY(other_fields, list);
+  Local<Array> other_fields = Array::New(notice->z_num_other_fields);
+  for (int i = 0; i < notice->z_num_other_fields; ++i) {
+    other_fields->Set(i, String::New(notice->z_other_fields[i]));
   }
+  target->Set(g_symbol_otherFields, other_fields);
 }
 
 void OnZephyrFDReady(uv_poll_t* handle, int status, int events) {
