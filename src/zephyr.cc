@@ -76,14 +76,8 @@ void ZephyrToObject(ZNotice_t *notice, Handle<Object> target) {
   EXTRACT(Number, auth,               z_auth);
 
   PROPERTY(uid, ZUniqueIdToBuffer(notice->z_uid));
-    
-  struct hostent *host = (struct hostent *) gethostbyaddr(
-      (char *) &notice->z_sender_addr, sizeof(struct in_addr), AF_INET);
-  if (host && host->h_name) {
-    PROPERTY(from_host, String::New(host->h_name));
-  } else {
-    PROPERTY(from_host, String::New(inet_ntoa(notice->z_sender_addr)));
-  }
+
+  PROPERTY(sender_addr, String::New(inet_ntoa(notice->z_sender_addr)));
 
   // Split up the body's components by NULs.
   Local<Array> body = Array::New();
