@@ -244,12 +244,12 @@ Handle<Value> SubscribeTo(const Arguments& args) {
 /*[ SEND ]********************************************************************/
 
 std::string GetStringProperty(Handle<Object> source,
-			      const char* key,
+                              Handle<String> key,
 			      const char *default_value) {
-  Local<Value> value = source->Get(String::New(key));
+  Local<Value> value = source->Get(key);
   if (value->IsUndefined())
     return default_value;
-  String::Utf8Value value_utf8(source->Get(String::New(key)));
+  String::Utf8Value value_utf8(source->Get(key));
   return std::string(*value_utf8, value_utf8.length());
 }
 
@@ -292,12 +292,12 @@ Handle<Value> SendNotice(const Arguments& args) {
     }
   }
 
-  std::string msg_class = GetStringProperty(obj, "class", "MESSAGE");
-  std::string instance = GetStringProperty(obj, "instance", "PERSONAL");
-  std::string format = GetStringProperty(obj, "format",
+  std::string msg_class = GetStringProperty(obj, g_symbol_class, "MESSAGE");
+  std::string instance = GetStringProperty(obj, g_symbol_instance, "PERSONAL");
+  std::string format = GetStringProperty(obj, g_symbol_format,
 					 "http://zephyr.1ts.org/wiki/df");
-  std::string opcode = GetStringProperty(obj, "opcode", "");
-  std::string recipient = GetStringProperty(obj, "recipient", "");
+  std::string opcode = GetStringProperty(obj, g_symbol_opcode, "");
+  std::string recipient = GetStringProperty(obj, g_symbol_recipient, "");
 
   // Assemble the notice.
   ZNotice_t notice;
