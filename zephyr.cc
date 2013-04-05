@@ -25,9 +25,6 @@ uv_loop_t *g_loop;
 
 uv_poll_t g_zephyr_poll;
 
-}  // namespace
-
-
 #define PROPERTY(name, value) target->Set(String::NewSymbol(#name), value)
 #define METHOD(name) PROPERTY(name, FunctionTemplate::New(name)->GetFunction())
 
@@ -290,9 +287,7 @@ std::string GetStringProperty(Handle<Object> source,
   return std::string(*value_utf8, value_utf8.length());
 }
 
-namespace {
 std::vector<ZUnique_Id_t> g_wait_on_uids;
-}
 
 Code_t SendFunction(ZNotice_t* notice, char* packet, int len, int waitforack) {
   // Send without blocking.
@@ -385,3 +380,5 @@ void init(Handle<Object> target) {
 }
 
 NODE_MODULE(zephyr, init)
+
+}  // namespace
