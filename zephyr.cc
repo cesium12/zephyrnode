@@ -27,7 +27,7 @@ uv_loop_t *Loop;
 
 #define CALL(func, ...) { \
     Nan::AsyncResource async("zephyr"); \
-    int argc = std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value; \
+    constexpr int argc = std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value; \
     Local<Value> argv[argc] = {__VA_ARGS__}; \
     async.runInAsyncScope(Nan::GetCurrentContext()->Global(), func, argc, argv); \
 }

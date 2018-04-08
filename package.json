@@ -1,0 +1,19 @@
+{
+  "name": "zephyr",
+  "version": "1.0.0",
+  "main": "init.js",
+  "dependencies": {
+    "bindings": "^1.3.0",
+    "nan": "^2.10.0"
+  },
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cesium12/zephyrnode.git"
+  },
+  "author": "cesium",
+  "gypfile": true,
+  "homepage": "https://github.com/cesium12/zephyrnode"
+}
