@@ -2,7 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <tuple>
 #include <node.h>
+#include <nan.h>
+#include <uv.h>
 #include <v8.h>
 
 extern "C" {
@@ -13,27 +16,37 @@ using namespace v8;
 
 namespace Zephyr {
     unsigned short port = 0;
-    Z_AuthProc authentic = ZAUTH;
-    Persistent<Function> on_msg;
+    std::string msg;
+    Nan::Persistent<Function> on_msg;
 }
 
 uv_loop_t *Loop;
 
-#define PROPERTY(name, value) target->Set(String::NewSymbol(#name), value)
-#define METHOD(name) PROPERTY(name, FunctionTemplate::New(name)->GetFunction())
+#define STRING(value) Nan::New(value).ToLocalChecked()
+#define PROPERTY(name, value) target->Set(STRING(#name), value)
 
-#define THROW(msg) { \
-        ThrowException(Exception::Error(String::New(msg))); \
-        return scope.Close(Undefined()); \
+#define CALL(func, ...) { \
+    Nan::AsyncResource async("zephyr"); \
+    int argc = std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value; \
+    Local<Value> argv[argc] = {__VA_ARGS__}; \
+    async.runInAsyncScope(Nan::GetCurrentContext()->Global(), func, argc, argv); \
+}
+
+#define CHECK(cond, error) \
+    if(!(cond)) { \
+        Nan::ThrowError(error); \
+        return; \
     }
 
-#define REPORT(callback, error) { \
-        Local<Value> argv[2] = { \
-            Local<Value>::New(String::New(error)), \
-            Local<Value>::New(Undefined()) \
-        }; \
-        callback->Call(Context::GetCurrent()->Global(), 2, argv); \
-    }
+#define CHECK_CALL(call, action) { \
+    long err = call; \
+    if(err != ZERR_NONE) { \
+        std::string msg(#call ": "); \
+        msg += error_message(err); \
+        action; \
+        return; \
+    } \
+}
 
 // XXX Unfortunately, it looks like everything except the select loop has to be
 // XXX synchronous because the zephyr library isn't thread-safe. (Disclaimer: I
@@ -45,183 +58,182 @@ uv_loop_t *Loop;
     cleanup(req); \
 }
 
-// XXX Yeah, I know I should check return values... but lazy...
-char *getstr(const Handle<Value> str) {
-    String::Utf8Value temp(Handle<String>::Cast(str));
-    return strndup(*temp, temp.length());
+/*[ CHECK ]*******************************************************************/
+
+void zephyr_to_object(ZNotice_t *notice, Local<Object> target) {
+    PROPERTY(packet,           STRING(notice->z_packet));
+    PROPERTY(version,          STRING(notice->z_version));
+    PROPERTY(port,             Nan::New(notice->z_port));
+    PROPERTY(checked_auth,     Nan::New(notice->z_checked_auth));
+    PROPERTY(authent_len,      Nan::New(notice->z_authent_len));
+    PROPERTY(ascii_authent,    STRING(notice->z_ascii_authent));
+    PROPERTY(class,            STRING(notice->z_class));
+    PROPERTY(instance,         STRING(notice->z_class_inst));
+    PROPERTY(opcode,           STRING(notice->z_opcode));
+    PROPERTY(sender,           STRING(notice->z_sender));
+    PROPERTY(recipient,        STRING(notice->z_recipient));
+    PROPERTY(format,           STRING(notice->z_default_format));
+    PROPERTY(num_other_fields, Nan::New(notice->z_num_other_fields));
+    PROPERTY(kind,             Nan::New(notice->z_kind));
+    PROPERTY(time,             Nan::New<Date>(notice->z_time.tv_sec * 1000.0).ToLocalChecked());
+    PROPERTY(auth,             Nan::New(notice->z_auth));
+
+    struct hostent *host = (struct hostent *) gethostbyaddr(
+        (char *) &notice->z_sender_addr, sizeof(struct in_addr), AF_INET);
+    if(host && host->h_name)
+        PROPERTY(from_host, STRING(host->h_name));
+    else
+        PROPERTY(from_host, STRING(inet_ntoa(notice->z_sender_addr)));
+
+    if(notice->z_message_len > 0) {
+        PROPERTY(signature, STRING(notice->z_message));
+        int sig_len = strlen(notice->z_message) + 1;
+        if(sig_len >= notice->z_message_len) {
+            PROPERTY(message, STRING(""));
+        } else {
+            char *message = strndup(notice->z_message + sig_len,
+                                    notice->z_message_len - sig_len);
+            PROPERTY(message, STRING(message));
+            free(message);
+        }
+    } else {
+        PROPERTY(signature, STRING(""));
+        PROPERTY(message, STRING(""));
+    }
+
+    if(notice->z_num_other_fields) {
+        Local<Array> list = Nan::New<Array>(notice->z_num_other_fields);
+        for(int i = 0; i < notice->z_num_other_fields; ++i)
+            list->Set(i, STRING(notice->z_other_fields[i]));
+        PROPERTY(other_fields, list);
+    }
 }
 
-/*[ CHECK ]*******************************************************************/
+void check_deliver(uv_async_t *async) {
+    HandleScope scope(Isolate::GetCurrent());
+    Local<Function> callback = Nan::New<Function>(Zephyr::on_msg);
+    struct sockaddr_in from;
+    ZNotice_t *notice;
+
+    while(true) {
+        int len = ZPending();
+        if(len < 0) {
+            CALL(callback, STRING(strerror(errno)), Nan::Undefined());
+            return;
+        } else if(len == 0) {
+            return;
+        }
+
+        notice = (ZNotice_t *) malloc(sizeof(ZNotice_t));
+        CHECK_CALL(
+            ZReceiveNotice(notice, &from),
+            CALL(callback, STRING(msg), Nan::Undefined()));
+
+        Local<Object> object = Nan::New<Object>();
+        zephyr_to_object(notice, object);
+        CALL(callback, Nan::Undefined(), object);
+        ZFreeNotice(notice);
+    }
+}
 
 void check_work(uv_work_t *req) {
     uv_async_t *async = (uv_async_t *) req->data;
     fd_set rfds;
     int fd = ZGetFD();
+    if(fd < 0) {
+        Zephyr::msg = "ZGetFD: No current file descriptor";
+        return;
+    }
     while(true) {
         FD_ZERO(&rfds);
         FD_SET(fd, &rfds);
         if(select(fd + 1, &rfds, NULL, NULL, NULL) < 0) {
-            perror("zephyr check");
-            break;
+            Zephyr::msg = "select: ";
+            Zephyr::msg += strerror(errno);
+            return;
         }
         uv_async_send(async);
     }
 }
 
-#define EXTRACT(type, name, field) PROPERTY(name, type::New(notice->field))
-
-void zephyr_to_object(ZNotice_t *notice, Handle<Object> target) {
-    EXTRACT(String, packet,             z_packet);
-    EXTRACT(String, version,            z_version);
-    EXTRACT(Number, port,               z_port);
-    EXTRACT(Number, checked_auth,       z_checked_auth);
-    EXTRACT(Number, authent_len,        z_authent_len);
-    EXTRACT(String, ascii_authent,      z_ascii_authent);
-    EXTRACT(String, class,              z_class);
-    EXTRACT(String, instance,           z_class_inst);
-    EXTRACT(String, opcode,             z_opcode);
-    EXTRACT(String, sender,             z_sender);
-    EXTRACT(String, recipient,          z_recipient);
-    EXTRACT(String, format,             z_default_format);
-    EXTRACT(Number, num_other_fields,   z_num_other_fields);
-    EXTRACT(Number, kind,               z_kind);
-    EXTRACT(Date,   time,               z_time.tv_sec * 1000.0);
-    EXTRACT(Number, auth,               z_auth);
-    
-    struct hostent *host = (struct hostent *) gethostbyaddr(
-        (char *) &notice->z_sender_addr, sizeof(struct in_addr), AF_INET);
-    if(host && host->h_name) {
-        PROPERTY(from_host, String::New(host->h_name));
-    } else {
-        PROPERTY(from_host, String::New(inet_ntoa(notice->z_sender_addr)));
+void check_cleanup(uv_work_t *req, int status) {
+    if(!Zephyr::msg.empty()) {
+        Local<Function> callback = Nan::New<Function>(Zephyr::on_msg);
+        CALL(callback, STRING(Zephyr::msg), Nan::Undefined());
+        Zephyr::msg = "";
     }
-    
-    if(notice->z_message_len > 0) {
-        EXTRACT(String, signature, z_message);
-        int sig_len = strlen(notice->z_message) + 1;
-        if(sig_len >= notice->z_message_len) {
-            PROPERTY(message, String::New(""));
-        } else {
-            char *message = strndup(notice->z_message + sig_len,
-                                    notice->z_message_len - sig_len);
-            PROPERTY(message, String::New(message));
-            free(message);
-        }
-    } else {
-        PROPERTY(signature, String::New(""));
-        PROPERTY(message, String::New(""));
-    }
-    
-    if(notice->z_num_other_fields) {
-        Local<Array> list = Array::New(notice->z_num_other_fields);
-        for(int i = 0; i < notice->z_num_other_fields; ++i)
-            list->Set(i, String::New(notice->z_other_fields[i]));
-        PROPERTY(other_fields, list);
-    }
-}
-
-void check_deliver(uv_async_t *async, int status) {
-    Local<Function> callback = Local<Function>::New(Zephyr::on_msg);
-    struct sockaddr_in from;
-    ZNotice_t *notice;
-    
-    while(true) {
-        int len = ZPending();
-        if(len < 0) {
-            REPORT(callback, strerror(errno));
-            return;
-        } else if(len == 0) {
-            return;
-        }
-        
-        notice = (ZNotice_t *) malloc(sizeof(ZNotice_t));
-        if(!notice || ZReceiveNotice(notice, &from) != ZERR_NONE) {
-            REPORT(callback, "error receiving zephyrgram");
-            return;
-        }
-        
-        Handle<Object> object = Object::New();
-        Local<Value> argv[2] = {
-            Local<Value>::New(Undefined()),
-            Local<Object>::New(object)
-        };
-        zephyr_to_object(notice, object);
-        callback->Call(Context::GetCurrent()->Global(), 2, argv);
-        ZFreeNotice(notice);
-    }
-}
-
-void check_cleanup(uv_work_t *req) {
     uv_async_t *async = (uv_async_t *) req->data;
     uv_close((uv_handle_t*) &async, NULL);
-    Zephyr::on_msg.Dispose();
-    Zephyr::on_msg.Clear();
+    Zephyr::on_msg.Reset();
     delete async;
     delete req;
 }
 
-Handle<Value> check(const Arguments& args) {
-    HandleScope scope;
-    
-    if(args.Length() != 1 || !args[0]->IsFunction())
-        THROW("check(callback(err, msg))");
-    if(!Zephyr::on_msg.IsEmpty())
-        THROW("can't call check() while it's already running");
-    
+NAN_METHOD(check) {
+    CHECK(info.Length() == 1 && info[0]->IsFunction(), "check(callback(err, msg))");
+    CHECK(Zephyr::on_msg.IsEmpty(), "can't call check() while it's already running");
+
     uv_async_t *async = new uv_async_t;
     uv_work_t *req = new uv_work_t;
     req->data = (void *) async;
-    Zephyr::on_msg = Persistent<Function>::New(Local<Function>::Cast(args[0]));
+    Zephyr::on_msg.Reset(Local<Function>::Cast(info[0]));
     uv_async_init(Loop, async, check_deliver);
     uv_queue_work(Loop, req, check_work, check_cleanup);
-    return scope.Close(Undefined());
 }
 
-/*[ SUB ]*********************************************************************/
+/*[ SUBSCRIBE ]***************************************************************/
 
 struct subscribe_baton {
     uv_work_t req;
-    Persistent<Function> callback;
+    Nan::Persistent<Function> callback;
     ZSubscription_t *subs;
-    Persistent<Array> out_subs;
+    int nsubs;
+    std::string msg;
 };
 
 void subscribe_work(uv_work_t *req) {
     subscribe_baton *data = (subscribe_baton *) req->data;
-    int length = data->out_subs->Length();
-    
-    if(length > 0)
-        ZSubscribeTo(data->subs, length, Zephyr::port);
-    
-    for(int i = 0; i < length; ++i) {
+
+    if(data->nsubs > 0) {
+        CHECK_CALL(
+            ZSubscribeToSansDefaults(data->subs, data->nsubs, Zephyr::port),
+            data->msg = msg);
+    }
+}
+
+void subscribe_cleanup(uv_work_t *req) {
+    subscribe_baton *data = (subscribe_baton *) req->data;
+    Local<Function> callback = Nan::New<Function>(data->callback);
+
+    if(data->msg.empty()) {
+        CALL(callback, Nan::Undefined());
+    } else {
+        CALL(callback, STRING(data->msg));
+    }
+
+    for(int i = 0; i < data->nsubs; ++i) {
         free(data->subs[i].zsub_recipient);
         free(data->subs[i].zsub_classinst);
         free(data->subs[i].zsub_class);
     }
     delete[] data->subs;
-}
-
-void subscribe_cleanup(uv_work_t *req) {
-    subscribe_baton *data = (subscribe_baton *) req->data;
-    Local<Function> callback = Local<Function>::New(data->callback);
-    Local<Value> argv[1] = { Local<Value>::New(data->out_subs) };
-    callback->Call(Context::GetCurrent()->Global(), 1, argv);
-    
-    data->callback.Dispose();
-    data->out_subs.Dispose();
+    data->callback.Reset();
     delete data;
 }
 
-Handle<Value> subscribe(const Arguments& args) {
-    HandleScope scope;
-    
-    if(args.Length() != 2 || !args[0]->IsArray() || !args[1]->IsFunction())
-        THROW("subscribe([ [ class, instance, recipient? ], ... ], callback)");
-    
-    Local<Array> in_subs = Local<Array>::Cast(args[0]);
-    Local<Array> out_subs = Array::New(in_subs->Length());
+// XXX Yeah, I know I should check return values... but lazy...
+char *getstr(const Local<Value> str) {
+    String::Utf8Value temp(Local<String>::Cast(str));
+    return strndup(*temp, temp.length());
+}
+
+NAN_METHOD(subscribe) {
+    CHECK(info.Length() == 2 && info[0]->IsArray() && info[1]->IsFunction(),
+        "subscribe([ [ class, instance, recipient? ], ... ], callback(err))");
+
+    Local<Array> in_subs = Local<Array>::Cast(info[0]);
     ZSubscription_t *subs = new ZSubscription_t[in_subs->Length()];
-    
+
     for(uint32_t i = 0; i < in_subs->Length(); ++i) {
         bool success = true;
         Local<Array> sub;
@@ -244,135 +256,133 @@ Handle<Value> subscribe(const Arguments& args) {
             }
         }
         if(!success) {
+            for(uint32_t j = 0; j < i; ++j) {
+                free(subs[j].zsub_recipient);
+                free(subs[j].zsub_classinst);
+                free(subs[j].zsub_class);
+            }
             delete[] subs;
-            THROW("subs must be [ class, instance, recipient? ]");
+            Nan::ThrowError("subs must be [ class, instance, recipient? ]");
+            return;
         }
-        
-        subs[i].zsub_recipient = sub->Length() == 3 ?
-            getstr(sub->Get(2)) : NULL;
+
+        subs[i].zsub_recipient = sub->Length() == 3 ? getstr(sub->Get(2)) : NULL;
         subs[i].zsub_classinst = getstr(sub->Get(1));
         subs[i].zsub_class = getstr(sub->Get(0));
-        out_subs->Set(i, sub);
     }
-    
+
     subscribe_baton *data = new subscribe_baton;
     data->req.data = (void *) data;
-    data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
+    data->callback.Reset(Local<Function>::Cast(info[1]));
     data->subs = subs;
-    data->out_subs = Persistent<Array>::New(out_subs);
+    data->nsubs = in_subs->Length();
     QUEUE(Loop, &data->req, subscribe_work, subscribe_cleanup);
-    return scope.Close(Undefined());
 }
 
 /*[ SUBS ]********************************************************************/
 
 struct subs_baton {
     uv_work_t req;
-    Persistent<Function> callback;
-    ZSubscription_t *subs;
+    Nan::Persistent<Function> callback;
+    ZSubscription_t *subs = NULL;
     int nsubs;
+    std::string msg;
 };
 
 void subs_work(uv_work_t *req) {
     subs_baton *data = (subs_baton *) req->data;
-    
-    if(ZRetrieveSubscriptions(Zephyr::port, &data->nsubs) != ZERR_NONE)
-        return;
-    
+
+    CHECK_CALL(
+        ZRetrieveSubscriptions(Zephyr::port, &data->nsubs),
+        data->msg = msg);
+
     data->subs = new ZSubscription_t[data->nsubs];
     for(int i = 0; i < data->nsubs; ++i) {
         int temp = 1;
-        if(ZGetSubscriptions(&(data->subs[i]), &temp) != ZERR_NONE) {
-            delete[] data->subs;
-            data->subs = NULL;
-            return;
-        }
+        CHECK_CALL(
+            ZGetSubscriptions(&(data->subs[i]), &temp),
+            data->msg = msg);
     }
 }
 
 void subs_cleanup(uv_work_t *req) {
     subs_baton *data = (subs_baton *) req->data;
-    
-    Local<Function> callback = Local<Function>::New(data->callback);
-    if(data->subs == NULL) {
-        REPORT(callback, "couldn't get subs");
-    } else {
-        Handle<Array> subs = Array::New(data->nsubs);
+    Local<Function> callback = Nan::New<Function>(data->callback);
+
+    if(data->msg.empty()) {
+        Local<Array> subs = Nan::New<Array>(data->nsubs);
         for(int i = 0; i < data->nsubs; ++i) {
-            Handle<Array> sub = Array::New(3);
-            sub->Set(0, String::New(data->subs[i].zsub_class));
-            sub->Set(1, String::New(data->subs[i].zsub_classinst));
-            sub->Set(2, String::New(data->subs[i].zsub_recipient));
+            Local<Array> sub = Nan::New<Array>(3);
+            sub->Set(0, STRING(data->subs[i].zsub_class));
+            sub->Set(1, STRING(data->subs[i].zsub_classinst));
+            sub->Set(2, STRING(data->subs[i].zsub_recipient));
             subs->Set(i, sub);
         }
-        Local<Value> argv[2] = {
-            Local<Value>::New(Undefined()),
-            Local<Value>::New(subs)
-        };
-        callback->Call(Context::GetCurrent()->Global(), 2, argv);
-        delete[] data->subs;
+        CALL(callback, Nan::Undefined(), subs);
+    } else {
+        CALL(callback, STRING(data->msg), Nan::Undefined());
     }
-    
-    data->callback.Dispose();
+
+    if(data->subs != NULL)
+        delete[] data->subs;
+    data->callback.Reset();
     delete data;
 }
 
-Handle<Value> subs(const Arguments& args) {
-    HandleScope scope;
-    
-    if(args.Length() != 1 || !args[0]->IsFunction())
-        THROW("subs(callback(err, [ sub, ... ]))");
-    
+NAN_METHOD(subs) {
+    CHECK(info.Length() == 1 && info[0]->IsFunction(),
+        "subs(callback(err, [ sub, ... ]))");
+
     subs_baton *data = new subs_baton;
     data->req.data = (void *) data;
-    data->callback = Persistent<Function>::New(Local<Function>::Cast(args[0]));
-    data->subs = NULL;
+    data->callback.Reset(Local<Function>::Cast(info[0]));
     QUEUE(Loop, &data->req, subs_work, subs_cleanup);
-    return scope.Close(Undefined());
 }
 
 /*[ SEND ]********************************************************************/
 
 struct send_baton {
     uv_work_t req;
-    Persistent<Function> callback;
+    Nan::Persistent<Function> callback;
     ZNotice_t *notice;
-    bool error;
+    std::string msg;
 };
 
 void send_work(uv_work_t *req) {
     send_baton *data = (send_baton *) req->data;
-    
-    data->error = ZSendNotice(data->notice, ZAUTH) != ZERR_NONE;
-    
-    free(data->notice->z_message);
-    free(data->notice->z_class);
-    free(data->notice->z_class_inst);
-    free(data->notice->z_default_format);
-    free(data->notice->z_opcode);
-    free(data->notice->z_recipient);
-    delete data->notice;
+    CHECK_CALL(
+        ZSendNotice(data->notice, ZAUTH),
+        data->msg = msg);
 }
 
 void send_cleanup(uv_work_t *req) {
     send_baton *data = (send_baton *) req->data;
-    Local<Function> callback = Local<Function>::New(data->callback);
-    Local<Value> argv[1] = { Local<Value>::New(
-        data->error ? String::New("failed to send zephyr") : Undefined()) };
-    callback->Call(Context::GetCurrent()->Global(), 1, argv);
+    Local<Function> callback = Nan::New<Function>(data->callback);
+    if(data->msg.empty()) {
+        CALL(callback, Nan::Undefined());
+    } else {
+        CALL(callback, STRING(data->msg));
+    }
     
-    data->callback.Dispose();
+    free(data->notice->z_message);
+    free(data->notice->z_class);
+    free(data->notice->z_class_inst);
+    free(data->notice->z_opcode);
+    free(data->notice->z_recipient);
+    free(data->notice->z_sender);
+    delete data->notice;
+    data->callback.Reset();
     delete data;
 }
 
-char *mkstr(Handle<Object> source, const char *key, const char *def) {
-    return source->Has(String::New(key)) ?
-        getstr(source->Get(String::New(key))->ToString()) :
+char *mkstr(Local<Object> source, const char *key, const char *def) {
+    return source->Has(STRING(key)) ?
+        getstr(source->Get(STRING(key))->ToString()) :
         strdup(def);
 }
 
 // XXX this is terrible
-void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
+void object_to_zephyr(Local<Object> source, ZNotice_t *notice) {
     char *signature = mkstr(source, "signature", "");
     char *message   = mkstr(source, "message", "");
     notice->z_message_len = strlen(signature) + strlen(message) + 2;
@@ -384,44 +394,37 @@ void object_to_zephyr(Handle<Object> source, ZNotice_t *notice) {
     notice->z_kind           = ACKED;
     notice->z_class          = mkstr(source, "class", "MESSAGE");
     notice->z_class_inst     = mkstr(source, "instance", "PERSONAL");
-    notice->z_default_format = mkstr(source, "format", "");
     notice->z_opcode         = mkstr(source, "opcode", "");
     notice->z_recipient      = mkstr(source, "recipient", "");
+    notice->z_sender         = mkstr(source, "sender", "");
 }
 
-Handle<Value> send(const Arguments& args) {
-    HandleScope scope;
-    
-    if(args.Length() != 2 || !args[0]->IsObject() || !args[1]->IsFunction())
-        THROW("subscribe({ ... }, callback(err))");
-    
+NAN_METHOD(send) {
+    CHECK(info.Length() == 2 && info[0]->IsObject() && info[1]->IsFunction(),
+        "subscribe({ ... }, callback(err))");
+
     send_baton *data = new send_baton;
     data->req.data = (void *) data;
-    data->callback = Persistent<Function>::New(Local<Function>::Cast(args[1]));
-    data->error = false;
+    data->callback.Reset(Local<Function>::Cast(info[1]));
     data->notice = new ZNotice_t();
-    object_to_zephyr(Local<Object>::Cast(args[0]), data->notice);
+    object_to_zephyr(Local<Object>::Cast(info[0]), data->notice);
     QUEUE(Loop, &data->req, send_work, send_cleanup);
-    return scope.Close(Undefined());
 }
 
-/*[ SEND ]********************************************************************/
+/*[ INIT ]********************************************************************/
 
-void init(Handle<Object> target) {
+NAN_MODULE_INIT(init) {
     Loop = uv_default_loop();
-    
-    if(ZInitialize() != ZERR_NONE || ZOpenPort(&Zephyr::port) != ZERR_NONE) {
-        // we should probably handle this better...
-        perror("zephyr init");
-        return;
-    }
-    
-    PROPERTY(sender, String::New(ZGetSender()));
-    PROPERTY(realm, String::New(ZGetRealm()));
-    METHOD(check);
-    METHOD(subscribe);
-    METHOD(subs);
-    METHOD(send);
+
+    CHECK_CALL(ZInitialize(), Nan::ThrowError(msg.c_str()));
+    CHECK_CALL(ZOpenPort(&Zephyr::port), Nan::ThrowError(msg.c_str()));
+
+    PROPERTY(sender, STRING(ZGetSender()));
+    PROPERTY(realm, STRING(ZGetRealm()));
+    NAN_EXPORT(target, check);
+    NAN_EXPORT(target, subscribe);
+    NAN_EXPORT(target, subs);
+    NAN_EXPORT(target, send);
 }
 
 NODE_MODULE(zephyr, init)

@@ -8,6 +8,9 @@
                     "-lzephyr"
                 ]
             },
+            "include_dirs": [
+                "<!(node -e \"require('nan')\")"
+            ],
             "cflags": [
                 "-W", "-Wall", "-Wno-unused-parameter"
             ]
