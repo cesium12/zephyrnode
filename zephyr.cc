@@ -27,9 +27,11 @@ uv_loop_t *Loop;
 
 #define CALL(func, ...) { \
     Nan::AsyncResource async("zephyr"); \
-    constexpr int argc = std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value; \
+    constexpr int argc = \
+        std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value; \
     Local<Value> argv[argc] = {__VA_ARGS__}; \
-    async.runInAsyncScope(Nan::GetCurrentContext()->Global(), func, argc, argv); \
+    async.runInAsyncScope( \
+        Nan::GetCurrentContext()->Global(), func, argc, argv); \
 }
 
 #define CHECK(cond, error) \
@@ -75,8 +77,9 @@ void zephyr_to_object(ZNotice_t *notice, Local<Object> target) {
     PROPERTY(format,           STRING(notice->z_default_format));
     PROPERTY(num_other_fields, Nan::New(notice->z_num_other_fields));
     PROPERTY(kind,             Nan::New(notice->z_kind));
-    PROPERTY(time,             Nan::New<Date>(notice->z_time.tv_sec * 1000.0).ToLocalChecked());
     PROPERTY(auth,             Nan::New(notice->z_auth));
+    PROPERTY(time,             Nan::New<Date>(notice->z_time.tv_sec * 1000.0)
+                                   .ToLocalChecked());
 
     struct hostent *host = (struct hostent *) gethostbyaddr(
         (char *) &notice->z_sender_addr, sizeof(struct in_addr), AF_INET);
@@ -163,15 +166,16 @@ void check_cleanup(uv_work_t *req, int status) {
         Zephyr::msg = "";
     }
     uv_async_t *async = (uv_async_t *) req->data;
-    uv_close((uv_handle_t*) &async, NULL);
+    uv_close((uv_handle_t *) &async, NULL);
     Zephyr::on_msg.Reset();
     delete async;
     delete req;
 }
 
 NAN_METHOD(check) {
-    CHECK(info.Length() == 1 && info[0]->IsFunction(), "check(callback(err, msg))");
-    CHECK(Zephyr::on_msg.IsEmpty(), "can't call check() while it's already running");
+    CHECK(info.Length() == 1 && info[0]->IsFunction(),
+        "check(callback(err, msg))");
+    CHECK(Zephyr::on_msg.IsEmpty(), "check() is already running");
 
     uv_async_t *async = new uv_async_t;
     uv_work_t *req = new uv_work_t;
@@ -229,7 +233,7 @@ char *getstr(const Local<Value> str) {
 
 NAN_METHOD(subscribe) {
     CHECK(info.Length() == 2 && info[0]->IsArray() && info[1]->IsFunction(),
-        "subscribe([ [ class, instance, recipient? ], ... ], callback(err))");
+        "subscribe([ [ class, instance?, recipient? ], ... ], callback(err))");
 
     Local<Array> in_subs = Local<Array>::Cast(info[0]);
     ZSubscription_t *subs = new ZSubscription_t[in_subs->Length()];
@@ -248,6 +252,7 @@ NAN_METHOD(subscribe) {
                 case 2:
                     if(!sub->Get(1)->IsString())
                         success = false;
+                case 1:
                     if(!sub->Get(0)->IsString())
                         success = false;
                     break;
@@ -262,12 +267,14 @@ NAN_METHOD(subscribe) {
                 free(subs[j].zsub_class);
             }
             delete[] subs;
-            Nan::ThrowError("subs must be [ class, instance, recipient? ]");
+            Nan::ThrowError("subs must be [ class, instance?, recipient? ]");
             return;
         }
 
-        subs[i].zsub_recipient = sub->Length() == 3 ? getstr(sub->Get(2)) : NULL;
-        subs[i].zsub_classinst = getstr(sub->Get(1));
+        subs[i].zsub_recipient =
+            sub->Length() > 2 ? getstr(sub->Get(2)) : strdup("*");
+        subs[i].zsub_classinst =
+            sub->Length() > 1 ? getstr(sub->Get(1)) : strdup("*");
         subs[i].zsub_class = getstr(sub->Get(0));
     }
 
@@ -391,12 +398,12 @@ void object_to_zephyr(Local<Object> source, ZNotice_t *notice) {
     strcpy(notice->z_message + strlen(signature) + 1, message);
     free(signature);
     free(message);
-    notice->z_kind           = ACKED;
-    notice->z_class          = mkstr(source, "class", "MESSAGE");
-    notice->z_class_inst     = mkstr(source, "instance", "PERSONAL");
-    notice->z_opcode         = mkstr(source, "opcode", "");
-    notice->z_recipient      = mkstr(source, "recipient", "");
-    notice->z_sender         = mkstr(source, "sender", "");
+    notice->z_kind       = ACKED;
+    notice->z_class      = mkstr(source, "class", "MESSAGE");
+    notice->z_class_inst = mkstr(source, "instance", "PERSONAL");
+    notice->z_opcode     = mkstr(source, "opcode", "");
+    notice->z_recipient  = mkstr(source, "recipient", "");
+    notice->z_sender     = mkstr(source, "sender", "");
 }
 
 NAN_METHOD(send) {

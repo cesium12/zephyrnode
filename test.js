@@ -2,9 +2,8 @@ var zephyr = require('./build/Release/zephyr');
 console.dir(zephyr);
 
 var cls = process.argv[2];
-var inst = process.argv[3];
 
-zephyr.subscribe([ [ cls, inst, '*' ] ], function() {
+zephyr.subscribe([[cls]], function() {
     zephyr.subs(function() {
         console.dir(arguments);
     });
