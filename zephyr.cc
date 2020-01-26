@@ -22,16 +22,18 @@ namespace Zephyr {
 
 uv_loop_t *Loop;
 
+#define CONTEXT Nan::GetCurrentContext()
+#define GET(object, key) object->Get(CONTEXT, key).ToLocalChecked()
+#define SET(object, key, value) object->Set(CONTEXT, key, value)
 #define STRING(value) Nan::New(value).ToLocalChecked()
-#define PROPERTY(name, value) target->Set(STRING(#name), value)
+#define PROPERTY(name, value) SET(target, STRING(#name), value)
 
 #define CALL(func, ...) { \
     Nan::AsyncResource async("zephyr"); \
     constexpr int argc = \
         std::tuple_size<decltype(std::make_tuple(__VA_ARGS__))>::value; \
     Local<Value> argv[argc] = {__VA_ARGS__}; \
-    async.runInAsyncScope( \
-        Nan::GetCurrentContext()->Global(), func, argc, argv); \
+    async.runInAsyncScope(CONTEXT->Global(), func, argc, argv); \
 }
 
 #define CHECK(cond, error) \
@@ -107,7 +109,7 @@ void zephyr_to_object(ZNotice_t *notice, Local<Object> target) {
     if(notice->z_num_other_fields) {
         Local<Array> list = Nan::New<Array>(notice->z_num_other_fields);
         for(int i = 0; i < notice->z_num_other_fields; ++i)
-            list->Set(i, STRING(notice->z_other_fields[i]));
+            SET(list, i, STRING(notice->z_other_fields[i]));
         PROPERTY(other_fields, list);
     }
 }
@@ -227,7 +229,7 @@ void subscribe_cleanup(uv_work_t *req) {
 
 // XXX Yeah, I know I should check return values... but lazy...
 char *getstr(const Local<Value> str) {
-    String::Utf8Value temp(Local<String>::Cast(str));
+    String::Utf8Value temp(Isolate::GetCurrent(), Local<String>::Cast(str));
     return strndup(*temp, temp.length());
 }
 
@@ -241,19 +243,19 @@ NAN_METHOD(subscribe) {
     for(uint32_t i = 0; i < in_subs->Length(); ++i) {
         bool success = true;
         Local<Array> sub;
-        if(!in_subs->Get(i)->IsArray()) {
+        if(!GET(in_subs, i)->IsArray()) {
             success = false;
         } else {
-            sub = Local<Array>::Cast(in_subs->Get(i));
+            sub = Local<Array>::Cast(GET(in_subs, i));
             switch(sub->Length()) {
                 case 3:
-                    if(!sub->Get(2)->IsString())
+                    if(!GET(sub, 2)->IsString())
                         success = false;
                 case 2:
-                    if(!sub->Get(1)->IsString())
+                    if(!GET(sub, 1)->IsString())
                         success = false;
                 case 1:
-                    if(!sub->Get(0)->IsString())
+                    if(!GET(sub, 0)->IsString())
                         success = false;
                     break;
                 default:
@@ -272,10 +274,10 @@ NAN_METHOD(subscribe) {
         }
 
         subs[i].zsub_recipient =
-            sub->Length() > 2 ? getstr(sub->Get(2)) : strdup("*");
+            sub->Length() > 2 ? getstr(GET(sub, 2)) : strdup("*");
         subs[i].zsub_classinst =
-            sub->Length() > 1 ? getstr(sub->Get(1)) : strdup("*");
-        subs[i].zsub_class = getstr(sub->Get(0));
+            sub->Length() > 1 ? getstr(GET(sub, 1)) : strdup("*");
+        subs[i].zsub_class = getstr(GET(sub, 0));
     }
 
     subscribe_baton *data = new subscribe_baton;
@@ -320,10 +322,10 @@ void subs_cleanup(uv_work_t *req) {
         Local<Array> subs = Nan::New<Array>(data->nsubs);
         for(int i = 0; i < data->nsubs; ++i) {
             Local<Array> sub = Nan::New<Array>(3);
-            sub->Set(0, STRING(data->subs[i].zsub_class));
-            sub->Set(1, STRING(data->subs[i].zsub_classinst));
-            sub->Set(2, STRING(data->subs[i].zsub_recipient));
-            subs->Set(i, sub);
+            SET(sub, 0, STRING(data->subs[i].zsub_class));
+            SET(sub, 1, STRING(data->subs[i].zsub_classinst));
+            SET(sub, 2, STRING(data->subs[i].zsub_recipient));
+            SET(subs, i, sub);
         }
         CALL(callback, Nan::Undefined(), subs);
     } else {
@@ -383,8 +385,8 @@ void send_cleanup(uv_work_t *req) {
 }
 
 char *mkstr(Local<Object> source, const char *key, const char *def) {
-    return source->Has(STRING(key)) ?
-        getstr(source->Get(STRING(key))->ToString()) :
+    return source->Has(CONTEXT, STRING(key)).ToChecked() ?
+        getstr(GET(source, STRING(key))->ToString(CONTEXT).ToLocalChecked()) :
         strdup(def);
 }
 

@@ -12,7 +12,7 @@
                 "<!(node -e \"require('nan')\")"
             ],
             "cflags": [
-                "-W", "-Wall", "-Wno-unused-parameter"
+                "-W", "-Wall", "-Wno-unused-parameter", "-Wno-unused-result"
             ]
         }
     ]
