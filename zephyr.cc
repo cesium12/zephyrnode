@@ -394,8 +394,8 @@ char *mkstr(Local<Object> source, const char *key, const char *def) {
 void object_to_zephyr(Local<Object> source, ZNotice_t *notice) {
     char *signature = mkstr(source, "signature", "");
     char *message   = mkstr(source, "message", "");
-    notice->z_message_len = strlen(signature) + strlen(message) + 2;
-    notice->z_message = (char *) malloc(notice->z_message_len);
+    notice->z_message_len = strlen(signature) + strlen(message) + 1;
+    notice->z_message = (char *) malloc(notice->z_message_len + 1);
     strcpy(notice->z_message, signature);
     strcpy(notice->z_message + strlen(signature) + 1, message);
     free(signature);
