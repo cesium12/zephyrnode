@@ -4,7 +4,7 @@
   "main": "init.js",
   "dependencies": {
     "bindings": "^1.5.0",
-    "nan": "^2.20.0"
+    "nan": "^2.23.1"
   },
   "scripts": {
     "install": "node-gyp rebuild"
